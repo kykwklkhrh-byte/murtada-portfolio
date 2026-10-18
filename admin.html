@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>لوحة تحكم الموقع | مرتضى</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root{font-family:Tahoma,Arial,sans-serif;color-scheme:dark;--bg:#070e1f;--card:#111e34;--line:#30415b;--accent:#51d2bc;--txt:#edf6ff;--muted:#b2bfd0}
+*{box-sizing:border-box}body{margin:0;color:var(--txt);background:radial-gradient(ellipse at 90% 0%,#163d4b 0%,transparent 44%),var(--bg);min-height:100vh;line-height:1.8}
+main{max-width:860px;margin:auto;padding:20px 16px 65px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0 28px}
+a{color:var(--accent);text-decoration:none}h1{font-size:clamp(28px,6vw,44px);line-height:1.4;margin:12px 0}h2{font-size:22px;margin:0 0 15px}
+p{color:var(--muted);margin:7px 0 18px}.chip{display:inline-block;border:1px solid #286356;background:#102e30;border-radius:99px;padding:3px 12px;color:#a8eddd;font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:clamp(18px,4vw,30px);margin-top:20px;box-shadow:0 15px 42px #0002}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0}.tab{cursor:pointer;border:1px solid var(--line);color:var(--txt);background:#17263c;border-radius:12px;padding:11px 5px;font:700 14px Tahoma}.tab.active{background:var(--accent);color:#09242e;border-color:transparent}
+label{display:block;font-size:14px;font-weight:bold;margin:16px 0 6px;color:#dce8f4}input,textarea,select{width:100%;background:#0b1729;border:1px solid #42546c;border-radius:12px;color:white;font:inherit;padding:12px 14px;outline:none}input:focus,textarea:focus,select:focus{border-color:var(--accent)}textarea{resize:vertical;min-height:90px}option{background:#11233b}
+.two{display:grid;grid-template-columns:repeat(2,1fr);gap:0 12px}.hint{font-size:13px;color:#a9b9ce;margin:4px 0 6px}
+.primary{width:100%;border:0;border-radius:14px;background:linear-gradient(90deg,#60e7d0,#56afff);padding:15px;color:#092039;font-size:16px;font-weight:800;cursor:pointer;margin-top:24px}
+.notice{background:#14283b;border:1px solid #3c5870;padding:13px 15px;border-radius:14px;font-size:14px;color:#d7e6f3;margin-top:20px}.actions{display:flex;flex-wrap:wrap;gap:13px;align-items:center;font-size:14px}
+small{color:#99adbf}#error{color:#ffc0bd} [hidden]{display:none!important}
+@media(max-width:540px){.tabs{grid-template-columns:repeat(2,1fr)}.two{grid-template-columns:1fr}.card{padding:17px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><b>لوحة مرتضى</b> <span class="chip">إدارة عبر GitHub</span></div><a href="./">العودة للموقع ↗</a></header>
+<h1>تحكّم بموقعك من تلفونك</h1>
+<p>تضيف تطبيقاتك، تحدّث روابط التحميل، تحذف مشروع، أو تغيّر معلوماتك. <b>النشر الحقيقي يتأكد من حساب GitHub مالك</b>، مو من زر مفتوح لكل الزوار.</p>
+<div class="card">
+<h2>شنو تريد تسوي؟</h2>
+<div class="tabs" role="group" aria-label="نوع التعديل">
+<button type="button" class="tab active" data-kind="add">＋ إضافة تطبيق</button>
+<button type="button" class="tab" data-kind="edit">✏️ تعديل مشروع</button>
+<button type="button" class="tab" data-kind="delete">🗑️ حذف مشروع</button>
+<button type="button" class="tab" data-kind="profile">👤 ملفي الشخصي</button>
+</div>
+<p id="description">املأ المعلومات واضغط إرسال؛ بعدها تأكّد من الطلب داخل GitHub حتى يظهر على موقعك.</p>
+<p id="error" hidden></p>
+<form id="form">
+<div id="selectorRow" hidden><label for="projectId">اختار المشروع</label><select id="projectId" name="projectId"></select></div>
+<div id="projectFields">
+<label for="projectName">اسم التطبيق أو المشروع *</label><input id="projectName" maxlength="120" required placeholder="مثلاً: خدماتنا">
+<label for="projectDescription">وصف المشروع *</label><textarea id="projectDescription" maxlength="1000" required placeholder="شنو يسوي تطبيقك؟"></textarea>
+<div class="two">
+<div><label for="projectType">نوع المشروع</label><select id="projectType"><option>تطبيق</option><option>موقع</option><option>لعبة</option></select></div>
+<div><label for="projectStatus">الحالة</label><select id="projectStatus"><option>قيد التطوير</option><option>نسخة تجريبية</option><option>منشور</option></select></div>
+</div>
+<label for="projectLink">رابط التحميل أو العرض</label><input id="projectLink" type="url" inputmode="url" placeholder="https://...">
+<label for="projectImage">رابط صورة التطبيق</label><input id="projectImage" type="url" inputmode="url" placeholder="https://...">
+<p class="hint">إذا الصورة بجهازك وما عندك رابط، تگدر ترفقها بصفحة GitHub اللي راح تنفتح بعدين، قبل تأكيد النشر.</p>
+<label for="projectTags">وسوم أو تقنيات (اختياري)</label><input id="projectTags" placeholder="Flutter, Android, Design">
+</div>
+<div id="profileFields" hidden>
+<label for="name">اسمك</label><input id="name" maxlength="100">
+<label for="title">العنوان المهني</label><input id="title" maxlength="150">
+<label for="bio">وصف مختصر</label><textarea id="bio" maxlength="500"></textarea>
+<label for="about">نبذة عنك</label><textarea id="about" maxlength="1300"></textarea>
+<div class="two"><div><label for="location">الموقع</label><input id="location"></div><div><label for="email">البريد</label><input id="email" type="email"></div></div>
+<div class="two"><div><label for="whatsapp">واتساب (رمز الدولة)</label><input id="whatsapp" inputmode="tel"></div><div><label for="github">GitHub</label><input id="github" type="url"></div></div>
+<label for="instagram">إنستغرام</label><input id="instagram" type="url">
+<label for="photo">رابط صورتك الجديدة</label><input id="photo" type="url" placeholder="اتركه فارغاً للاحتفاظ بصورتك">
+<p class="hint">لرفع صورة من تلفونك، أرفقها داخل طلب GitHub قبل تأكيده.</p>
+</div>
+<button class="primary" id="submitBtn" type="submit">إرسال الطلب للنشر ←</button>
+</form>
+</div>
+<div class="notice">
+<b>شلون يننشر؟</b> تملأ الاستمارة، وتنفتح صفحة طلب على GitHub. تتأكد أنت من الطلب وتضغط <b>Submit new issue</b> (إرسال الطلب). النظام يتحقق من حسابك، يحفظ التعديل وينشره تلقائياً. أي شخص غير صاحب المستودع ما يگدر ينشر تغييرات على الموقع من هالطريقة.
+</div>
+<div class="actions" style="margin-top:24px"><a href="https://github.com/kykwklkhrh-byte/murtada-portfolio/issues" target="_blank" rel="noopener noreferrer">متابعة طلبات التعديل ↗</a><a href="./">الموقع العام ↗</a></div>
+<small>ملاحظة: صفحة الإدارة نفسها عامة، لكن النشر يتطلب الدخول إلى حساب GitHub المالك للمستودع.</small>
+</main>
+<script>
+(function(){
+'use strict';
+var repo='kykwklkhrh-byte/murtada-portfolio';
+var current='add', projects=[], profile={};
+function el(id){return document.getElementById(id)}
+function val(id){return el(id).value.trim()}
+function link(v){if(!v)return '';try{var u=new URL(v);if(u.protocol!=='https:')throw Error('HTTPS only');return u.href}catch(e){throw Error('الرابط يجب أن يبدأ بـ https://: '+v)}}
+function showError(msg){el('error').textContent=msg;el('error').hidden=!msg}
+function setFields(kind){
+ current=kind;
+ document.querySelectorAll('.tab').forEach(function(b){b.classList.toggle('active',b.dataset.kind===kind)});
+ el('selectorRow').hidden=!(kind==='edit'||kind==='delete');
+ el('projectFields').hidden=kind==='profile'||kind==='delete';
+ el('profileFields').hidden=kind!=='profile';
+ el('projectName').required=kind==='add'||kind==='edit';
+ el('projectDescription').required=kind==='add'||kind==='edit';
+ el('submitBtn').textContent=kind==='delete'?'تأكيد طلب حذف المشروع ←':kind==='profile'?'إرسال تحديث معلوماتي ←':'إرسال الطلب للنشر ←';
+ el('description').textContent=kind==='add'?'أضف تطبيق أو لعبة أو موقع جديد، وبعد التأكيد يظهر للزوار.':kind==='edit'?'اختار أحد مشاريعك وغيّر معلوماته.':kind==='delete'?'اختار مشروع واحد للحذف من الموقع العام.':'عدّل معلوماتك وروابط حساباتك.';
+ showError('');
+ if(kind==='edit'||kind==='delete')fillProject();
+ if(kind==='profile')fillProfile();
+}
+function fillProject(){
+ var p=projects.find(function(x){return x.id===val('projectId')});if(!p)return;
+ ['name','description','type','status','link','image'].forEach(function(k){var id='project'+k.charAt(0).toUpperCase()+k.slice(1);el(id).value=p[k]||''});
+ el('projectTags').value=Array.isArray(p.tags)?p.tags.join(', '):'';
+}
+function fillProfile(){['name','title','bio','about','location','email','whatsapp','github','instagram'].forEach(function(k){el(k).value=profile[k]||''})}
+function readData(){
+ fetch('./data.json',{cache:'no-store'}).then(function(r){if(!r.ok)throw Error('تعذر جلب معلومات الموقع');return r.json()}).then(function(d){
+ profile=d;projects=Array.isArray(d.projects)?d.projects:[];
+ var select=el('projectId');select.replaceChildren();
+ projects.forEach(function(p){select.append(new Option(p.name,p.id))});
+ if(!projects.length){select.append(new Option('لا توجد مشاريع بعد',''))}
+ fillProject();
+ }).catch(function(e){showError('تعذر تحميل المشاريع، حدّث الصفحة وحاول مرة ثانية. '+e.message)});
+}
+function makeBody(payload){
+ return 'PORTFOLIO_REQUEST_V1\nBEGIN_REQUEST\n'+JSON.stringify(payload)+'\nEND_REQUEST\n\nيمكنك إضافة صورة هنا بالسحب أو من زر إرفاق الملفات، قبل الضغط على Submit new issue. لا تغيّر النص بين BEGIN_REQUEST و END_REQUEST.';
+}
+el('form').addEventListener('submit',function(ev){
+ ev.preventDefault();showError('');
+ try{
+ var payload={operation:current},title='';
+ if(current==='delete'||current==='edit'){
+  payload.id=val('projectId');
+  if(!payload.id)throw Error('اختار مشروعاً أولاً');
+ }
+ if(current==='add'||current==='edit'){
+  payload.name=val('projectName');
+  payload.description=val('projectDescription');
+  if(!payload.name||!payload.description)throw Error('اسم ووصف المشروع مطلوبان');
+  payload.type=val('projectType');
+  payload.status=val('projectStatus');
+  payload.link=link(val('projectLink'));
+  payload.image=link(val('projectImage'));
+  payload.tags=val('projectTags').split(/[,،]/).map(function(s){return s.trim()}).filter(Boolean).slice(0,8);
+  title=(current==='add'?'إضافة مشروع: ':'تعديل مشروع: ')+payload.name;
+ }else if(current==='delete'){
+  var p=projects.find(function(x){return x.id===payload.id});
+  if(!confirm('تريد حذف '+(p?p.name:'هذا المشروع')+' من الموقع العام؟'))return;
+  title='حذف مشروع: '+(p?p.name:payload.id);
+ }else {
+  ['name','title','bio','about','location','email','whatsapp'].forEach(function(k){payload[k]=val(k)});
+  ['github','instagram'].forEach(function(k){payload[k]=link(val(k))});
+  payload.photo=link(val('photo'));
+  title='تحديث المعلومات الشخصية';
+ }
+ var body=makeBody(payload);
+ var url='https://github.com/'+repo+'/issues/new?title='+encodeURIComponent(title)+'&body='+encodeURIComponent(body);
+ window.location.assign(url);
+ }catch(e){showError(e.message||'تعذر تجهيز الطلب')}
+});
+el('projectId').addEventListener('change',fillProject);
+document.querySelectorAll('.tab').forEach(function(b){b.addEventListener('click',function(){setFields(b.dataset.kind)})});
+readData();
+})();
+</script>
+</body>
+</html>
