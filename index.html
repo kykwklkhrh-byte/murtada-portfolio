@@ -90,7 +90,7 @@ const deep=o=>JSON.parse(JSON.stringify(o));
 const safeText=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeLink=v=>{try{const u=new URL(String(v||''));return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}};
 const safeImg=v=>typeof v==='string'&&(/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v)||!!safeLink(v))?v:'';
-const data=D; let filter='الكل';
+let data=D; let filter='الكل';
 function art(p){if(p.image)return `<div class="project-art photo" style="background-image:url('${p.image}')"><span class="art-label">${svg('sparkles')} ${safeText(p.type)}</span></div>`;
 let content='';switch(p.art){case'network':content='<div class="mock-phone"><small>YOUR NETWORK</small><div class="speed-circle"><span>82<i> Mbps</i></span></div><div class="speed-bars"><b></b><b></b><b></b></div></div>';break;case'services':content='<div class="service-mock"><div class="service-head"><b>خدماتنا</b><span></span></div><div class="service-blocks"><span>⌂</span><span>⚒</span><span>✦</span><span>☰</span></div></div>';break;case'history':content='<div class="history-mock"><div class="emblem">۞</div><small>ARAB HISTORY</small></div>';break;default:content=`<div class="custom-mock">${svg(p.type==='لعبة'?'gamepad':p.type==='موقع'?'globe':'smartphone')}</div>`}return `<div class="project-art ${p.art||'custom'}"><span class="art-label">${svg('sparkles')} ${safeText(p.type)}</span>${content}</div>`}
 function renderProjects(){const filtered=data.projects.filter(p=>filter==='الكل'||p.type===filter),grid=$('projectsGrid');grid.innerHTML=filtered.map((p,i)=>`<article class="project-card">${art(p)}<div class="project-info"><div class="project-meta"><span class="project-kind">${safeText(p.type)}</span><span class="project-state ${p.status==='منشور'?'published':''}">${safeText(p.status)}</span></div><h3>${safeText(p.name)}</h3><p>${safeText(p.description)}</p><div class="tags">${p.tags.map(t=>`<span class="tag">${safeText(t)}</span>`).join('')}</div><div class="project-footer">${p.link?`<a class="view-project" href="${safeText(p.link)}" target="_blank" rel="noopener noreferrer">${p.status==='منشور'?'زيارة / تحميل المشروع':'معاينة المشروع'} ${svg('external')}</a>`:'<span class="view-project disabled">الرابط يُضاف عند توفره</span>'}<span class="project-index">${String(i+1).padStart(2,'0')} / ${String(filtered.length).padStart(2,'0')}</span></div></div></article>`).join('');$('emptyResult').hidden=filtered.length>0;
@@ -115,6 +115,15 @@ document.querySelectorAll('.filter').forEach(b=>b.addEventListener('click',()=>{
 $('shareBtn').addEventListener('click',async()=>{const url=location.origin+location.pathname;try{if(navigator.share){await navigator.share({title:document.title,url})}else if(navigator.clipboard){await navigator.clipboard.writeText(url);alert('تم نسخ رابط الموقع')}else{prompt('انسخ رابط الموقع:',url)}}catch(e){if(e.name!=='AbortError')prompt('انسخ رابط الموقع:',url)}});
 window.addEventListener('scroll',()=>{const root=document.documentElement,dist=Math.max(1,root.scrollHeight-root.clientHeight);$('progress').style.width=Math.min(100,Math.round(root.scrollTop/dist*100))+'%'},{passive:true});
 render();
+fetch('./data.json',{cache:'no-store'})
+ .then(r=>{if(!r.ok)throw Error('No data');return r.json()})
+ .then(next=>{
+   if(!next||typeof next!=='object'||Array.isArray(next)||!Array.isArray(next.projects))return;
+   const projects=next.projects.filter(p=>p&&typeof p==='object')
+     .map(p=>({...p,image:safeImg(p.image||''),link:safeLink(p.link||''),tags:Array.isArray(p.tags)?p.tags.map(String):[]}));
+   data={...D,...next,photo:next.photo?safeImg(next.photo)||D.photo:D.photo,projects};
+   render();
+ }).catch(()=>{});
 })();
 </script>
 </body>
