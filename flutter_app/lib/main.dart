@@ -10,8 +10,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'source_tools.dart';
+import 'local_library.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 const bg = Color(0xFFF6F2EA);
@@ -69,6 +69,7 @@ class _ViralHomeState extends State<ViralHome> {
   String? chosenName;
   VideoPlayerController? player;
   bool cutting = false;
+  bool smartSelection = true;
   List<String> clips = [];
   String progress = '';
   final categories = ['بودكاست', 'قصص', 'لحظات', 'قرآن'];
@@ -91,21 +92,18 @@ class _ViralHomeState extends State<ViralHome> {
   }
 
   Future<void> loadClips() async {
-    try {
-      final pref = await SharedPreferences.getInstance();
-      final paths = pref.getStringList('saved_clips') ?? [];
-      final good = paths.where((p) => File(p).existsSync()).toList();
-      if (mounted) setState(() => clips = good);
-    } catch (_) {
-      // Storage failure must never prevent the home screen from opening.
-    }
+    final paths = await LocalLibrary.readList('clips', legacyKey: 'saved_clips');
+    final existing = paths.where((p) => File(p).existsSync()).toList();
+    if (mounted) setState(() => clips = existing);
   }
 
   Future<void> saveClips() async {
     try {
-      final pref = await SharedPreferences.getInstance();
-      await pref.setStringList('saved_clips', clips.take(100).toList());
-    } catch (_) {}
+      await LocalLibrary.writeList('clips', clips.take(100).toList(),
+        legacyKey: 'saved_clips');
+    } catch (e) {
+      message('تعذر حفظ مكتبة المقاطع: ' + e.toString());
+    }
   }
 
   @override
@@ -180,8 +178,26 @@ class _ViralHomeState extends State<ViralHome> {
     setState(() { cutting = true; progress = 'جارٍ تجهيز القص...'; tab = 0; });
     var successes = 0;
     try {
-      for (var i = 0; i < number; i++) {
-        final position = startMs + i * lengthMs;
+      var positions = <int>[];
+      if (smartSelection) {
+        if (mounted) setState(() => progress = 'جارٍ تحليل تغيّر المشاهد بالفيديو...');
+        try {
+          final proposed = await channel.invokeListMethod<int>('suggest', {
+            'path': source,
+            'durationMs': lengthMs,
+            'count': number,
+          });
+          positions = (proposed ?? []).where((p) =>
+              p >= startMs && p < videoDurationMs - 1000).toList();
+        } catch (e) {
+          message('تعذر اقتراح المشاهد؛ سيتم القص بالتتابع. ' + e.toString());
+        }
+      }
+      if (positions.isEmpty) {
+        positions = List<int>.generate(number, (i) => startMs + i * lengthMs);
+      }
+      for (var i = 0; i < positions.length; i++) {
+        final position = positions[i];
         if (position >= videoDurationMs - 1000) break;
         final currentLength = math.min(lengthMs, videoDurationMs - position);
         if (mounted) {
@@ -294,7 +310,7 @@ class _ViralHomeState extends State<ViralHome> {
         label: const Text('اختيار فيديو من الجهاز'),
       )),
     ]))),
-    caption('إعدادات القص', 'حدد بداية القص، مدة كل مقطع، وعدد المقاطع المتتابعة.'),
+    caption('إعدادات القص', 'تگدر تخلي التطبيق يقترح أوقات اللقطات من تغيّر المشاهد، أو تقص مقاطع متتابعة.'),
     Card(child: Padding(padding: const EdgeInsets.all(17), child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -325,6 +341,14 @@ class _ViralHomeState extends State<ViralHome> {
           ChoiceChip(label: Text(c), selected: category == c,
             onSelected: cutting ? null : (_) => setState(() => category = c))).toList()),
         const SizedBox(height: 15),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('اقتراح لقطات تلقائياً'),
+          subtitle: const Text('يفحص تغيّر المشاهد داخل الفيديو، مو فهم الكلام بالذكاء الاصطناعي'),
+          value: smartSelection,
+          onChanged: cutting ? null : (enabled) => setState(() => smartSelection = enabled),
+        ),
+        const SizedBox(height: 10),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Text('عدد المقاطع', style: TextStyle(fontWeight: FontWeight.w700)),
           Text(number.toString(), style: const TextStyle(color: accent, fontSize: 20)),
@@ -384,22 +408,26 @@ class _ViralHomeState extends State<ViralHome> {
   ]);
 
   Future<void> loadSources() async {
-    try {
-      final p = await SharedPreferences.getInstance();
-      if (mounted) setState(() {
-        youtubeLinks = p.getStringList('laqta_sources') ?? [];
-        tiktokHandles = p.getStringList('laqta_tiktok_profiles') ?? [];
-        if (tiktokHandles.isNotEmpty) selectedAccount = tiktokHandles.first;
-      });
-    } catch (_) {}
+    final urls = await LocalLibrary.readList('sources',
+        legacyKey: 'laqta_sources');
+    final accounts = await LocalLibrary.readList('profiles',
+        legacyKey: 'laqta_tiktok_profiles');
+    if (mounted) setState(() {
+      youtubeLinks = {...urls, ...youtubeLinks}.toList();
+      tiktokHandles = {...accounts, ...tiktokHandles}.toList();
+      if (tiktokHandles.isNotEmpty) selectedAccount ??= tiktokHandles.first;
+    });
   }
 
   Future<void> saveSources() async {
     try {
-      final p = await SharedPreferences.getInstance();
-      await p.setStringList('laqta_sources', youtubeLinks);
-      await p.setStringList('laqta_tiktok_profiles', tiktokHandles);
-    } catch (_) { message('تعذر حفظ القائمة على الجهاز'); }
+      await LocalLibrary.writeList('sources', List<String>.from(youtubeLinks),
+          legacyKey: 'laqta_sources');
+      await LocalLibrary.writeList('profiles', List<String>.from(tiktokHandles),
+          legacyKey: 'laqta_tiktok_profiles');
+    } catch (e) {
+      message('تعذّر الحفظ على الجهاز. التفاصيل: ' + e.toString());
+    }
   }
 
   Future<void> launchExternal(String address) async {
