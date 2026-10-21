@@ -72,15 +72,7 @@ jobs:
             adb shell screencap -p /sdcard/viral-screen.png
             adb pull /sdcard/viral-screen.png home-screen.png
             python3 -m pip -q install pillow
-            python3 - <<'PY'
-            from PIL import Image
-            im = Image.open("home-screen.png").convert("RGB")
-            w,h = im.size
-            sample = im.crop((0, int(h*.16), w, int(h*.8))).resize((130,130))
-            colors = len(set(sample.getdata()))
-            print("Distinct colors in central screen:", colors)
-            assert colors >= 150, "Screen looks blank after launch"
-            PY
+            python3 -c 'from PIL import Image; i=Image.open("home-screen.png").convert("RGB"); w,h=i.size; n=len(set(i.crop((0,int(h*.16),w,int(h*.8))).resize((130,130)).getdata())); print("Central screen colors:",n); assert n>150, "Blank screen"'
       - name: Attach screenshot and launch log
         uses: actions/upload-artifact@v4
         if: always()
