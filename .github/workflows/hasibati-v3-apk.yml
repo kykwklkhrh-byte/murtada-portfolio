@@ -1,0 +1,118 @@
+name: Hasibati M v3 Android
+on:
+  push:
+    branches: [hasibati-m-v3]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: hasibati_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Restore verified v3 Flutter source
+        working-directory: .
+        run: |
+          python3 -m pip install -q brotli
+          mkdir -p hasibati_app
+          base64 --decode secret-vault-bundle.b64 > /tmp/hasibati-old.zip
+          unzip -q /tmp/hasibati-old.zip -d hasibati_app
+          cat v3patch/part*.b64 | tr -d '\n' | base64 --decode > /tmp/v3.patch.br
+          echo "2f191b9dbff545404748d18460c0472f0e7e22a32d5c0baa62e0ec0890b4219e  /tmp/v3.patch.br" | sha256sum -c -
+          python3 - <<'PY'
+          import brotli, io, tarfile
+          with tarfile.open(fileobj=io.BytesIO(brotli.decompress(open('/tmp/v3.patch.br','rb').read()))) as tar:
+              tar.extractall('hasibati_app', filter='data')
+          print('Verified v3 patch restored successfully')
+          PY
+      - name: Configure native Android and secure Recents
+        run: |
+          cp pubspec.yaml /tmp/hasibati_pubspec.yaml
+          cp -r lib /tmp/hasibati_lib
+          cp firebase/google-services.json /tmp/hasibati_google.json
+          flutter create --platforms=android --org com.mortadaa --project-name secret_vault .
+          cp /tmp/hasibati_pubspec.yaml pubspec.yaml
+          cp /tmp/hasibati_lib/*.dart lib/
+          cp /tmp/hasibati_google.json android/app/google-services.json
+          rm -f test/widget_test.dart
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          google=json.loads(Path('android/app/google-services.json').read_text())
+          assert google['client'][0]['client_info']['android_client_info']['package_name']=='com.mortadaa.secret_vault_v21'
+          manifest=Path('android/app/src/main/AndroidManifest.xml')
+          txt=manifest.read_text()
+          txt=txt.replace('android:label="secret_vault"','android:label="حاسبتي M"')
+          txt=txt.replace('<application','<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <application',1)
+          manifest.write_text(txt)
+          gradle=Path('android/app/build.gradle.kts')
+          txt=gradle.read_text().replace('minSdk = flutter.minSdkVersion','minSdk = 24')
+          txt=txt.replace('applicationId = "com.mortadaa.secret_vault"','applicationId = "com.mortadaa.secret_vault_v21"')
+          txt=txt.replace('plugins {','plugins {\n    id("com.google.gms.google-services")',1)
+          gradle.write_text(txt)
+          settings=Path('android/settings.gradle.kts')
+          settings.write_text(settings.read_text().replace('plugins {','plugins {\n    id("com.google.gms.google-services") version "4.4.4" apply false',1))
+          for source in Path('assets/android_icons').glob('mipmap-*/ic_launcher.png'):
+              dest=Path('android/app/src/main/res')/source.parent.name/'ic_launcher.png'
+              dest.parent.mkdir(parents=True,exist_ok=True)
+              dest.write_bytes(source.read_bytes())
+          activity=Path('android/app/src/main/kotlin/com/mortadaa/secret_vault/MainActivity.kt')
+          activity.parent.mkdir(parents=True,exist_ok=True)
+          activity.write_text("""package com.mortadaa.secret_vault
+          import android.view.WindowManager
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+          class MainActivity : FlutterActivity() {
+            override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+              super.configureFlutterEngine(flutterEngine)
+              MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hasibati/privacy")
+                .setMethodCallHandler { call, result ->
+                  if (call.method == "secure") {
+                    val enabled = call.arguments as? Boolean ?: false
+                    runOnUiThread {
+                      if (enabled) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                      else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                      result.success(null)
+                    }
+                  } else result.notImplemented()
+                }
+            }
+          }
+          """.replace('\n          ','\n'))
+          PY
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Test calculator
+        run: flutter test
+      - name: Build APK
+        run: flutter build apk --release --dart-define-from-file=../firebase-client-config.json
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hasibati-m-v3-apk
+          path: hasibati_app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+      - name: Publish APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: hasibati-m-v3
+          target_commitish: hasibati-m-v3
+          name: "حاسبتي M v3"
+          prerelease: true
+          make_latest: false
+          body: |
+            Android calculator gate (3 sec), screenshot-protected private dashboard, light/dark,
+            E2EE chat with profiles, photos, videos, files, voice notes and optional notifications.
+            Firebase Storage and Cloud Functions services require separate setup and security rules.
+          files: hasibati_app/build/app/outputs/flutter-apk/app-release.apk
