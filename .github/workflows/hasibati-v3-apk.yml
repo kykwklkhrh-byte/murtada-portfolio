@@ -42,6 +42,33 @@ jobs:
           flutter create --platforms=android --org com.mortadaa --project-name secret_vault .
           cp /tmp/hasibati_pubspec.yaml pubspec.yaml
           cp /tmp/hasibati_lib/*.dart lib/
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/chat_screen.dart')
+          s = p.read_text()
+          old = """final picked = await FilePicker.platform.pickFiles(
+                  type: kind == 'video' ? FileType.video : FileType.any, withData: false);
+                if (picked == null || picked.files.isEmpty) return;
+                final file = picked.files.single;
+                name = file.name;
+                if (file.size > _maxAttachmentBytes) throw StateError('الحجم المسموح 18 ميگابايت');
+                bytes = file.bytes != null ? Uint8List.fromList(file.bytes!) : await File(file.path!).readAsBytes();"""
+          new = """final file = await FilePicker.pickFile(type: kind == 'video' ? FileType.video : FileType.any);
+                if (file == null) return;
+                name = file.name;
+                final length = await file.length();
+                if (length != null && length > _maxAttachmentBytes) throw StateError('الحجم المسموح 18 ميگابايت');
+                bytes = await file.readAsBytes();"""
+          assert old in s, 'file picker source changed'
+          s = s.replace(old, new)
+          oldsettings = "      ]))),\\n    ));\\n  }\\n\\n  @override"
+          assert oldsettings in s, 'settings close source changed'
+          s = s.replace(oldsettings, "      ]))),\\n    );\\n  }\\n\\n  @override")
+          oldsheet = "      ]))),\\n    );\\n  }\\n}"
+          assert oldsheet in s, 'sheet close source changed'
+          s = s.replace(oldsheet, "      ])),\\n    );\\n  }\\n}")
+          p.write_text(s)
+          PY
           cp /tmp/hasibati_google.json android/app/google-services.json
           rm -f test/widget_test.dart
           python3 - <<'PY'
