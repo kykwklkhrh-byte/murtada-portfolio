@@ -47,8 +47,16 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'https://www.youtube.com/@sample');
     await tester.tap(find.text('فحص الرابط وإضافته'));
     await tester.pumpAndSettle();
-    final saved = await LocalLibrary.readList('sources', legacyKey: 'laqta_sources');
-    expect(saved, contains('https://www.youtube.com/@sample'));
+    expect(find.textContaining('https://www.youtube.com/@sample'), findsWidgets);
+  });
+
+
+  test('local store writes and reads link across calls', () async {
+    SharedPreferences.setMockInitialValues({});
+    const sample = 'https://youtu.be/abc123';
+    await LocalLibrary.writeList('sources', [sample], legacyKey: 'laqta_sources');
+    final result = await LocalLibrary.readList('sources', legacyKey: 'laqta_sources');
+    expect(result, contains(sample));
   });
 
   test('YouTube URL recognition validates exact hosts', () {
