@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -5,15 +6,19 @@ import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'source_tools.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
-const bg = Color(0xFF0A101B);
-const panel = Color(0xFF162133);
-const accent = Color(0xFF5DE1C1);
-const purple = Color(0xFFAA9AFF);
-const muted = Color(0xFFABB5C7);
+const bg = Color(0xFFF6F2EA);
+const panel = Color(0xFFFFFFFF);
+const accent = Color(0xFFB55738);
+const purple = Color(0xFF293E59);
+const muted = Color(0xFF66717F);
 const channel = MethodChannel('viral_clips_ai/native_video');
 
 void main() {
@@ -27,20 +32,20 @@ class ViralApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
-    title: 'Viral Clips AI',
+    title: 'لقطة | Laqta',
     theme: ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       scaffoldBackgroundColor: bg,
-      colorScheme: const ColorScheme.dark(primary: accent, secondary: purple, surface: panel),
-      appBarTheme: const AppBarTheme(backgroundColor: bg, foregroundColor: Colors.white),
+      colorScheme: const ColorScheme.light(primary: accent, secondary: purple, surface: panel),
+      appBarTheme: const AppBarTheme(backgroundColor: bg, foregroundColor: purple),
       cardTheme: CardThemeData(
         color: panel, elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: accent, foregroundColor: const Color(0xFF0C1720),
+          backgroundColor: purple, foregroundColor: Colors.white,
           minimumSize: const Size(0, 52),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
@@ -67,11 +72,22 @@ class _ViralHomeState extends State<ViralHome> {
   List<String> clips = [];
   String progress = '';
   final categories = ['بودكاست', 'قصص', 'لحظات', 'قرآن'];
+  final youtubeInput = TextEditingController();
+  final tiktokInput = TextEditingController();
+  List<String> youtubeLinks = [];
+  List<String> tiktokHandles = [];
+  String? selectedAccount;
+  String? lastYoutubeTitle;
+  String? lastYoutubeAuthor;
+  bool checkingLink = false;
+  bool importingVideo = false;
+
 
   @override
   void initState() {
     super.initState();
     loadClips();
+    loadSources();
   }
 
   Future<void> loadClips() async {
@@ -94,6 +110,8 @@ class _ViralHomeState extends State<ViralHome> {
 
   @override
   void dispose() {
+    youtubeInput.dispose();
+    tiktokInput.dispose();
     player?.dispose();
     super.dispose();
   }
@@ -181,7 +199,7 @@ class _ViralHomeState extends State<ViralHome> {
       }
       if (successes == 0) throw Exception('ماكو وقت كافي من الفيديو حتى نقصه');
       message('تم تجهيز ' + successes.toString() + ' مقاطع بنجاح');
-      if (mounted) setState(() => tab = 1);
+      if (mounted) setState(() => tab = 2);
     } on PlatformException catch (e) {
       message('ما قدرنا نقص هذا الترميز. جرب MP4 H.264. ' + (e.message ?? e.code));
     } catch (e) {
@@ -236,19 +254,26 @@ class _ViralHomeState extends State<ViralHome> {
         borderRadius: BorderRadius.circular(24),
         gradient: const LinearGradient(
           begin: Alignment.topRight, end: Alignment.bottomLeft,
-          colors: [Color(0xFF453A7B), Color(0xFF254A65), Color(0xFF156056)],
+          colors: [Color(0xFF1C3049), Color(0xFF3F4250), Color(0xFF9A553C)],
         ),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Icon(Icons.auto_awesome_rounded, size: 32, color: accent),
+        const Icon(Icons.play_circle_filled_rounded, size: 32, color: Color(0xFFFFDEB6)),
         const SizedBox(height: 14),
-        const Text('فيديو طويل، مقاطع جاهزة',
-          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, height: 1.25)),
+        const Text('لقطة تستاهل تننشر',
+          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, height: 1.25, color: Colors.white)),
         const SizedBox(height: 8),
         const Text('قص المقاطع على جهازك مباشرة، بدون سيرفر أو تسجيل دخول.',
-          style: TextStyle(color: Color(0xFFE0F4F4))),
+          style: TextStyle(color: Color(0xFFF7EBDF))),
       ]),
     ),
+    Card(child: ListTile(
+      leading: const Icon(Icons.link, color: accent),
+      title: const Text('عندك رابط يوتيوب؟'),
+      subtitle: const Text('أضفه بقسم يوتيوب وشوف معلوماته'),
+      trailing: const Icon(Icons.arrow_back_ios_new, size: 15),
+      onTap: () => setState(() => tab = 1),
+    )),
     caption('اختيار الفيديو', 'اختر فيديو MP4 محفوظاً بجهازك، أو ملفاً تملك حق استخدامه.'),
     Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
       if (player != null && player!.value.isInitialized)
@@ -341,7 +366,7 @@ class _ViralHomeState extends State<ViralHome> {
       final path = item.value;
       return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
         ListTile(
-          leading: const CircleAvatar(backgroundColor: Color(0xFF324A52),
+          leading: const CircleAvatar(backgroundColor: Color(0xFFF8E7D7),
             child: Icon(Icons.play_arrow, color: accent)),
           title: Text('المقطع ' + (item.key + 1).toString()),
           subtitle: Text(path.split('/').last, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -349,7 +374,7 @@ class _ViralHomeState extends State<ViralHome> {
         ),
         Row(children: [
           Expanded(child: FilledButton.icon(onPressed: () => shareClip(path),
-            icon: const Icon(Icons.share_outlined), label: const Text('مشاركة'))),
+            icon: const Icon(Icons.share_outlined), label: const Text('نشر / مشاركة'))),
           const SizedBox(width: 8),
           IconButton.filledTonal(tooltip: 'حذف', onPressed: () => deleteClip(path),
             icon: const Icon(Icons.delete_outline)),
@@ -358,11 +383,289 @@ class _ViralHomeState extends State<ViralHome> {
     }),
   ]);
 
+  Future<void> loadSources() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (mounted) setState(() {
+        youtubeLinks = p.getStringList('laqta_sources') ?? [];
+        tiktokHandles = p.getStringList('laqta_tiktok_profiles') ?? [];
+        if (tiktokHandles.isNotEmpty) selectedAccount = tiktokHandles.first;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> saveSources() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setStringList('laqta_sources', youtubeLinks);
+      await p.setStringList('laqta_tiktok_profiles', tiktokHandles);
+    } catch (_) { message('تعذر حفظ القائمة على الجهاز'); }
+  }
+
+  Future<void> launchExternal(String address) async {
+    try {
+      final uri = Uri.parse(address);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw Exception('المتصفح لم يفتح الرابط');
+      }
+    } catch (e) { message('ما قدرنا نفتح الرابط: $e'); }
+  }
+
+  Future<void> checkYoutubeLink() async {
+    final link = youtubeInput.text.trim();
+    final kind = classifyVideoLink(link);
+    if (kind == VideoLinkKind.unsupported) {
+      message('الرابط غير صحيح. استخدم رابط يوتيوب أو رابط مباشر لملف MP4 آمن.');
+      return;
+    }
+    if (kind == VideoLinkKind.directMp4) {
+      await importMp4(link);
+      return;
+    }
+    if (checkingLink) return;
+    setState(() => checkingLink = true);
+    String title = 'رابط يوتيوب محفوظ';
+    String author = 'يوتيوب';
+    try {
+      if (kind == VideoLinkKind.youtubeVideo) {
+        final endpoint = Uri.https('www.youtube.com', '/oembed',
+          {'url': link, 'format': 'json'});
+        final response = await http.get(endpoint).timeout(const Duration(seconds: 14));
+        if (response.statusCode == 200) {
+          final result = jsonDecode(response.body) as Map<String, dynamic>;
+          title = (result['title'] ?? title).toString();
+          author = (result['author_name'] ?? author).toString();
+        }
+      } else {
+        title = 'قناة أو قائمة يوتيوب';
+      }
+    } catch (_) {
+      // A valid link can still be saved when metadata requests are unavailable.
+    } finally {
+      if (mounted) {
+        setState(() {
+          youtubeLinks.remove(link);
+          youtubeLinks.insert(0, link);
+          lastYoutubeTitle = title;
+          lastYoutubeAuthor = author;
+          checkingLink = false;
+        });
+      }
+      await saveSources();
+    }
+    message('تم حفظ الرابط. افتحه لمشاهدته، ثم استورد ملفاً تملك حق استخدامه.');
+  }
+
+  Future<void> importMp4(String url) async {
+    if (importingVideo) return;
+    setState(() => importingVideo = true);
+    http.Client? client;
+    File? output;
+    IOSink? sink;
+    try {
+      final uri = Uri.parse(url);
+      client = http.Client();
+      final response = await client.send(http.Request('GET', uri))
+        .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        throw Exception('الرابط رجّع HTTP ${response.statusCode}');
+      }
+      if (response.contentLength != null && response.contentLength! > 500 * 1024 * 1024) {
+        throw Exception('حجم الفيديو أكبر من 500 ميغابايت');
+      }
+      final mime = response.headers['content-type']?.toLowerCase() ?? '';
+      if (mime.contains('text/html') || mime.contains('application/json')) {
+        throw Exception('الرابط مو ملف فيديو مباشر');
+      }
+      final dir = await getApplicationDocumentsDirectory();
+      output = File('${dir.path}/Laqta_import_${DateTime.now().millisecondsSinceEpoch}.mp4');
+      sink = output.openWrite();
+      var size = 0;
+      await for (final data in response.stream.timeout(const Duration(seconds: 65))) {
+        size += data.length;
+        if (size > 500 * 1024 * 1024) throw Exception('حجم الفيديو يتجاوز 500 ميغابايت');
+        sink.add(data);
+      }
+      await sink.flush();
+      await sink.close();
+      sink = null;
+      if (size < 1024) throw Exception('ملف الفيديو غير مكتمل');
+      await showVideo(output.path, isSource: true);
+      if (mounted) setState(() => tab = 0);
+      message('تم استيراد الفيديو. اختَر مدة المقطع واضغط قص الآن.');
+    } catch (e) {
+      message('فشل استيراد MP4: $e');
+      try { await sink?.close(); } catch (_) {}
+      try { if (output != null && await output.exists()) await output.delete(); } catch (_) {}
+    } finally {
+      client?.close();
+      if (mounted) setState(() => importingVideo = false);
+    }
+  }
+
+  Future<void> addTikTokHandle() async {
+    final username = parseTikTokHandle(tiktokInput.text);
+    if (username == null) {
+      message('اكتب اسم حساب صحيح، مثل @example أو رابط الملف الشخصي');
+      return;
+    }
+    setState(() {
+      tiktokHandles.remove(username);
+      tiktokHandles.insert(0, username);
+      selectedAccount = username;
+    });
+    tiktokInput.clear();
+    await saveSources();
+    message('حفظنا الحساب للانتقال السريع. هذا مو تسجيل دخول API.');
+  }
+
+  Future<void> removeTikTokHandle(String handle) async {
+    setState(() {
+      tiktokHandles.remove(handle);
+      if (selectedAccount == handle) {
+        selectedAccount = tiktokHandles.isEmpty ? null : tiktokHandles.first;
+      }
+    });
+    await saveSources();
+  }
+
+  Widget youtubeTab() => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 10, 18, 36),
+    children: [
+      caption('مصادر يوتيوب', 'ألصق رابط فيديو أو قناة. تظهر معلومات الفيديو وتكدر تفتحه من التطبيق.'),
+      Card(child: Padding(padding: const EdgeInsets.all(17), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Icon(Icons.smart_display_outlined, size: 40, color: accent),
+          const SizedBox(height: 10),
+          TextField(
+            controller: youtubeInput,
+            textDirection: TextDirection.ltr,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              hintText: 'https://youtube.com/watch?v=...',
+              labelText: 'رابط يوتيوب أو MP4 مباشر',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: checkingLink || importingVideo ? null : checkYoutubeLink,
+            icon: const Icon(Icons.link),
+            label: Text(importingVideo ? 'جارٍ تنزيل MP4...' :
+                checkingLink ? 'جلب المعلومات...' : 'فحص الرابط وإضافته'),
+          ),
+          if (importingVideo || checkingLink) const LinearProgressIndicator(),
+          if (lastYoutubeTitle != null) ...[
+            const SizedBox(height: 12),
+            Text(lastYoutubeTitle!, style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(lastYoutubeAuthor ?? '', style: const TextStyle(color: muted)),
+          ],
+        ],
+      ))),
+      caption('القنوات والفيديوهات المحفوظة', 'المصدر يبقى محفوظ على الجهاز حتى تكدر ترجع له.'),
+      if (youtubeLinks.isEmpty) const Card(child: ListTile(
+        leading: Icon(Icons.video_library_outlined, color: accent),
+        title: Text('ما ضفت روابط بعد'),
+      )),
+      ...youtubeLinks.map((link) => Card(child: ListTile(
+        leading: const Icon(Icons.play_circle_outline, color: accent),
+        title: Text(link, maxLines: 2, overflow: TextOverflow.ellipsis,
+          textDirection: TextDirection.ltr),
+        subtitle: const Text('افتح الفيديو على يوتيوب'),
+        onTap: () => launchExternal(link),
+        trailing: IconButton(
+          tooltip: 'حذف الرابط', icon: const Icon(Icons.close),
+          onPressed: () async {
+            setState(() => youtubeLinks.remove(link));
+            await saveSources();
+          },
+        ),
+      ))),
+      caption('شلون تحول رابط إلى مقطع؟', 'روابط يوتيوب تعرض معلومات الفيديو والمشاهدة. '
+        'تنزيل فيديوهات القنوات وإعادة نشرها يحتاج حقوقاً وطريقة استيراد مسموحة. '
+        'إذا عندك الملف الأصلي، استورده بالاستوديو، أو استخدم رابط MP4 مباشر آمن.'),
+      OutlinedButton.icon(onPressed: () => setState(() => tab = 0),
+        icon: const Icon(Icons.content_cut_outlined), label: const Text('الانتقال إلى أداة القص')),
+    ],
+  );
+
+  Widget tiktokTab() => ListView(
+    padding: const EdgeInsets.fromLTRB(18, 10, 18, 36),
+    children: [
+      caption('حساباتي على تيك توك', 'أضف حساباتك للانتقال السريع بينها، وتكدر تحذف أي حساب.'),
+      Card(child: Padding(padding: const EdgeInsets.all(17), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Icon(Icons.account_circle_outlined, size: 40, color: purple),
+          const SizedBox(height: 12),
+          TextField(
+            controller: tiktokInput, textDirection: TextDirection.ltr,
+            decoration: const InputDecoration(
+              labelText: 'اسم الحساب أو رابط TikTok',
+              hintText: '@username',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(onPressed: addTikTokHandle,
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+            label: const Text('إضافة الحساب إلى قائمتي')),
+          const SizedBox(height: 9),
+          const Text('ملاحظة: إضافة الاسم مو ربط رسمي ولا تعطي التطبيق صلاحية النشر باسمك.',
+            style: TextStyle(color: muted, height: 1.6)),
+        ],
+      ))),
+      caption('الحسابات المحفوظة', '${tiktokHandles.length} حساب'),
+      if (tiktokHandles.isEmpty) const Card(child: ListTile(
+        leading: Icon(Icons.person_off_outlined),
+        title: Text('ما أضفت أي حساب بعد'),
+      )),
+      ...tiktokHandles.map((handle) => Card(child: ListTile(
+        leading: Icon(
+          selectedAccount == handle ? Icons.radio_button_checked : Icons.radio_button_off,
+          color: accent,
+        ),
+        title: Text('@$handle', textDirection: TextDirection.ltr),
+        subtitle: Text(selectedAccount == handle ? 'محدد للعرض' : 'اضغط لاختيار الحساب'),
+        onTap: () => setState(() => selectedAccount = handle),
+        trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(tooltip: 'افتح حساب تيك توك',
+            onPressed: () => launchExternal('https://www.tiktok.com/@$handle'),
+            icon: const Icon(Icons.open_in_new, color: purple)),
+          IconButton(tooltip: 'إزالة من القائمة', icon: const Icon(Icons.delete_outline),
+            onPressed: () => removeTikTokHandle(handle)),
+        ]),
+      ))),
+      caption('نشر مقطع على تيك توك', 'إذا عندك مقاطع جاهزة، افتح مشاركة أندرويد '
+        'واختَر تيك توك، ثم تأكد من الحساب داخل TikTok قبل النشر.'),
+      if (selectedAccount != null) Card(child: ListTile(
+        title: Text('الحساب المختار: @$selectedAccount'),
+        subtitle: const Text('اختيار الحساب هنا لا يغيّر الحساب المسجّل داخل تطبيق تيك توك'),
+        trailing: IconButton(icon: const Icon(Icons.open_in_new),
+          onPressed: () => launchExternal('https://www.tiktok.com/@$selectedAccount')),
+      )),
+      ...clips.take(3).map((file) => Card(child: ListTile(
+        leading: const Icon(Icons.movie_outlined, color: accent),
+        title: Text(file.split('/').last, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: FilledButton(onPressed: () => shareClip(file), child: const Text('مشاركة')),
+      ))),
+      if (clips.isEmpty) OutlinedButton.icon(
+        onPressed: () => setState(() => tab = 0),
+        icon: const Icon(Icons.content_cut),
+        label: const Text('اصنع أول مقطع')),
+      const SizedBox(height: 18),
+      const Card(child: Padding(padding: EdgeInsets.all(16),
+        child: Text('النشر التلقائي بواجهة TikTok الرسمية يحتاج تطبيق مطور معتمد، '
+          'صلاحية video.publish، وموافقة تسجيل الدخول من تيك توك. '
+          'ماكو صلاحية نشر مباشر مفعّلة بهذا الإصدار.',
+          style: TextStyle(color: muted, height: 1.7)))),
+    ],
+  );
+
   Widget aboutTab() => ListView(padding: const EdgeInsets.all(18), children: [
-    caption('عن التطبيق', 'إصدار 0.4.0 — مصمم للأندرويد'),
+    caption('عن التطبيق', 'إصدار 0.5.0 — مصمم للأندرويد'),
     const Card(child: Padding(padding: EdgeInsets.all(20), child: Column(
       crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('VIRAL CLIPS AI', style: TextStyle(fontSize: 20,
+        Text('لَقطة | LAQTA', style: TextStyle(fontSize: 20,
           letterSpacing: 2, fontWeight: FontWeight.w900, color: accent)),
         SizedBox(height: 12),
         Text('القص يعمل داخل تلفونك، حتى بدون إنترنت.'),
@@ -381,25 +684,26 @@ class _ViralHomeState extends State<ViralHome> {
     appBar: AppBar(
       titleSpacing: 18,
       title: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('VIRAL CLIPS AI', style: TextStyle(
-          color: accent, fontSize: 12, letterSpacing: 2.4, fontWeight: FontWeight.w900)),
-        Text('استوديو المقاطع', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        Text('LAQTA • لَقطة', style: TextStyle(
+          color: accent, fontSize: 14, letterSpacing: 1.4, fontWeight: FontWeight.w900)),
+        Text('محرّر الفيديو القصير', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
       ]),
       actions: const [
         Padding(padding: EdgeInsets.symmetric(horizontal: 12),
           child: Icon(Icons.video_camera_back_outlined, color: purple)),
       ],
     ),
-    body: SafeArea(child: IndexedStack(index: tab, children: [homeTab(), clipsTab(), aboutTab()])),
+    body: SafeArea(child: IndexedStack(index: tab, children: [homeTab(), youtubeTab(), clipsTab(), tiktokTab()])),
     bottomNavigationBar: NavigationBar(
       selectedIndex: tab,
       backgroundColor: panel,
-      indicatorColor: const Color(0xFF36594F),
+      indicatorColor: const Color(0xFFF5DFCE),
       onDestinationSelected: (v) => setState(() => tab = v),
       destinations: const [
         NavigationDestination(icon: Icon(Icons.content_cut_outlined), label: 'الاستوديو'),
+        NavigationDestination(icon: Icon(Icons.smart_display_outlined), label: 'يوتيوب'),
         NavigationDestination(icon: Icon(Icons.video_collection_outlined), label: 'مقاطعك'),
-        NavigationDestination(icon: Icon(Icons.info_outline_rounded), label: 'عن التطبيق'),
+        NavigationDestination(icon: Icon(Icons.people_outline), label: 'تيك توك'),
       ],
     ),
   );
