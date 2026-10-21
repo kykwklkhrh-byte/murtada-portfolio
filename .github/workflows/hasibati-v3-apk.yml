@@ -1,7 +1,7 @@
-name: Hasibati M v3 Android
+name: Hasibati M v3.2 Android
 on:
   push:
-    branches: [hasibati-m-v3]
+    branches: [hasibati-m-v3-2]
   workflow_dispatch:
 permissions:
   contents: write
@@ -114,6 +114,11 @@ jobs:
           }
           """.replace('\n          ','\n'))
           PY
+      - name: Apply v3.2 Flutter overlay
+        working-directory: .
+        run: |
+          base64 -d v3_2/flutter-overlay.b64 > /tmp/overlay-v32.zip
+          unzip -oq /tmp/overlay-v32.zip -d hasibati_app
       - name: Resolve dependencies
         run: flutter pub get
       - name: Analyze
@@ -121,19 +126,19 @@ jobs:
       - name: Test calculator
         run: flutter test
       - name: Build APK
-        run: flutter build apk --release --dart-define-from-file=../firebase-client-config.json
+        run: flutter build apk --release --dart-define-from-file=../firebase-client-config.json --dart-define=FIREBASE_STORAGE_BUCKET=hasibati-m.firebasestorage.app
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hasibati-m-v3-apk
+          name: hasibati-m-v3-2-apk
           path: hasibati_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
       - name: Publish APK release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: hasibati-m-v3
-          target_commitish: hasibati-m-v3
-          name: "حاسبتي M v3"
+          tag_name: hasibati-m-v3-2
+          target_commitish: hasibati-m-v3-2
+          name: "حاسبتي M v3.2"
           prerelease: true
           make_latest: false
           body: |
