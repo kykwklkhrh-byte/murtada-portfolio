@@ -47,8 +47,8 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'https://www.youtube.com/@sample');
     await tester.tap(find.text('فحص الرابط وإضافته'));
     await tester.pumpAndSettle();
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getStringList('laqta_sources'), contains('https://www.youtube.com/@sample'));
+    final saved = await LocalLibrary.readList('sources', legacyKey: 'laqta_sources');
+    expect(saved, contains('https://www.youtube.com/@sample'));
   });
 
   test('YouTube URL recognition validates exact hosts', () {
