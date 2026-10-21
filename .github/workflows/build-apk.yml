@@ -1,4 +1,4 @@
-name: Android APK
+name: Viral Clips AI Android Release
 on:
   push:
     branches: [viral-clips-ai-apk]
@@ -8,6 +8,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -18,24 +19,74 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate Android platform files
+      - name: Generate Android project
         working-directory: flutter_app
         run: flutter create --platforms android --org com.mortadaa --project-name viral_clips_ai .
-      - name: Install dependencies
+      - name: Fetch dependencies
         working-directory: flutter_app
         run: flutter pub get
-      - name: Analyze Flutter sources
+      - name: Validate Dart code
         working-directory: flutter_app
         run: flutter analyze --no-fatal-infos
-      - name: Run Flutter widget tests
+      - name: Test launch UI
         working-directory: flutter_app
         run: flutter test
-      - name: Build release APK
+      - name: Build Android APK
         working-directory: flutter_app
         run: flutter build apk --release
-      - name: Publish APK for download
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ViralClipsAI-Android-APK
+          name: ViralClipsAI-v0.4.0-APK
           path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+  smoke:
+    name: Android Emulator Startup Smoke
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ViralClipsAI-v0.4.0-APK
+          path: apk
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch APK in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install apk/app-release.apk
+            adb shell am start -n com.mortadaa.viral_clips_ai/.MainActivity
+            sleep 18
+            adb shell dumpsys activity activities | grep -q com.mortadaa.viral_clips_ai
+            adb logcat -d > app-logcat.txt
+            adb shell screencap -p /sdcard/viral-screen.png
+            adb pull /sdcard/viral-screen.png home-screen.png
+            python3 -m pip -q install pillow
+            python3 - <<'PY'
+            from PIL import Image
+            im = Image.open("home-screen.png").convert("RGB")
+            w,h = im.size
+            sample = im.crop((0, int(h*.16), w, int(h*.8))).resize((130,130))
+            colors = len(set(sample.getdata()))
+            print("Distinct colors in central screen:", colors)
+            assert colors >= 150, "Screen looks blank after launch"
+            PY
+      - name: Attach screenshot and launch log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-Launch-Screenshot
+          path: |
+            home-screen.png
+            app-logcat.txt
+          if-no-files-found: ignore
