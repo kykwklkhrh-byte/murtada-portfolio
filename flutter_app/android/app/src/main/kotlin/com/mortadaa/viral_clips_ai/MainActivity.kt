@@ -18,6 +18,26 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "viral_clips_ai/native_video")
             .setMethodCallHandler { call, reply ->
+                if (call.method == "suggest") {
+                    val source = call.argument<String>("path")
+                    val durationMs = call.argument<Number>("durationMs")?.toLong()
+                    val count = call.argument<Number>("count")?.toInt()
+                    if (source.isNullOrBlank() || durationMs == null || count == null ||
+                            durationMs !in 1000L..120000L || count !in 1..8) {
+                        reply.error("INVALID", "Invalid analysis settings", null)
+                        return@setMethodCallHandler
+                    }
+                    Thread {
+                        try {
+                            val candidates = SceneScorer.suggest(source, durationMs, count)
+                            runOnUiThread { reply.success(candidates) }
+                        } catch (e: Exception) {
+                            runOnUiThread { reply.error("ANALYSIS_FAILED",
+                                e.message ?: "Cannot inspect video frames", null) }
+                        }
+                    }.start()
+                    return@setMethodCallHandler
+                }
                 if (call.method != "trim") {
                     reply.notImplemented()
                     return@setMethodCallHandler
