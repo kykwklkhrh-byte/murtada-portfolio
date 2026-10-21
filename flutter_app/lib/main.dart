@@ -278,7 +278,7 @@ class _ViralHomeState extends State<ViralHome> {
             style: const TextStyle(color: accent)),
         ]),
         Slider(
-          value: startSeconds.clamp(0, math.max(1.0, durationMs / 1000 - 1)),
+          value: startSeconds.clamp(0.0, math.max(1.0, durationMs / 1000 - 1)).toDouble(),
           max: math.max(1.0, durationMs / 1000 - 1),
           onChanged: selected == null || cutting ? null :
             (v) {
