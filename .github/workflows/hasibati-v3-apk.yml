@@ -1,7 +1,7 @@
-name: Hasibati M v3.2 Android
+name: Hasibati M v3.3 Free Attachments
 on:
   push:
-    branches: [hasibati-m-v3-2]
+    branches: [hasibati-m-v3-3]
   workflow_dispatch:
 permissions:
   contents: write
@@ -119,6 +119,14 @@ jobs:
         run: |
           base64 -d v3_2/flutter-overlay.b64 > /tmp/overlay-v32.zip
           unzip -oq /tmp/overlay-v32.zip -d hasibati_app
+      - name: Apply encrypted attachment v3.3 overlay
+        working-directory: .
+        run: |
+          base64 -d v3_3/flutter-overlay.b64 > /tmp/overlay-v33.zip
+          unzip -oq /tmp/overlay-v33.zip -d hasibati_app
+          grep -q 'version: 3.3.0+9' hasibati_app/pubspec.yaml
+          grep -q 'attachments' hasibati_app/firestore.rules
+          grep -q 'firestore:' hasibati_app/lib/chat_screen.dart
       - name: Resolve dependencies
         run: flutter pub get
       - name: Analyze
@@ -130,19 +138,19 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hasibati-m-v3-2-apk
+          name: hasibati-m-v3-3-free-attachments-apk
           path: hasibati_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
       - name: Publish APK release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: hasibati-m-v3-2
-          target_commitish: hasibati-m-v3-2
-          name: "حاسبتي M v3.2"
+          tag_name: hasibati-m-v3-3
+          target_commitish: hasibati-m-v3-3
+          name: "حاسبتي M v3.3 بدون بطاقة"
           prerelease: true
           make_latest: false
           body: |
             Android calculator gate (3 sec), screenshot-protected private dashboard, light/dark,
             E2EE chat with profiles, photos, videos, files, voice notes and optional notifications.
-            Firebase Storage and Cloud Functions services require separate setup and security rules.
+            New small encrypted attachments up to 8MiB are split across Firestore documents on the Spark free tier.\n            User must publish the included firestore.rules before uploads work. No Blaze required.\n            Older Firebase Storage attachments need the previous Storage backend for reading.
           files: hasibati_app/build/app/outputs/flutter-apk/app-release.apk
