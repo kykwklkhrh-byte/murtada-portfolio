@@ -1,7 +1,7 @@
 name: viral_clips_ai
 description: Laqta video clipping and sharing app
 publish_to: none
-version: 0.5.1+7
+version: 0.5.2+8
 environment:
   sdk: ">=3.5.0 <4.0.0"
 dependencies:
