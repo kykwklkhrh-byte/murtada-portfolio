@@ -1,19 +1,24 @@
+import 'dart:io';
+import 'dart:math' as math;
+
+import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
-import 'api.dart';
 
-const surface = Color(0xFF101827);
-const bg = Color(0xFF080F1C);
-const mint = Color(0xFF52E0CE);
-const lilac = Color(0xFFAE9BFF);
-const muted = Color(0xFF9BAAC5);
-const kinds = ['بودكاست', 'قصص', 'لحظات', 'قرآن'];
+const bg = Color(0xFF0A101B);
+const panel = Color(0xFF162133);
+const accent = Color(0xFF5DE1C1);
+const purple = Color(0xFFAA9AFF);
+const muted = Color(0xFFABB5C7);
+const channel = MethodChannel('viral_clips_ai/native_video');
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await Api.instance.load();
+  // Never block runApp on platform storage, networking, or user authentication.
   runApp(const ViralApp());
 }
 
@@ -24,482 +29,378 @@ class ViralApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     title: 'Viral Clips AI',
     theme: ThemeData(
-      brightness: Brightness.dark, useMaterial3: true,
+      useMaterial3: true,
+      brightness: Brightness.dark,
       scaffoldBackgroundColor: bg,
-      colorScheme: const ColorScheme.dark(primary: lilac, secondary: mint, surface: surface),
-      cardTheme: CardThemeData(color: surface, elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(19))),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true, fillColor: const Color(0xFF1E2A40),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none)),
+      colorScheme: const ColorScheme.dark(primary: accent, secondary: purple, surface: panel),
+      appBarTheme: const AppBarTheme(backgroundColor: bg, foregroundColor: Colors.white),
+      cardTheme: CardThemeData(
+        color: panel, elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: accent, foregroundColor: const Color(0xFF0C1720),
+          minimumSize: const Size(0, 52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+        ),
+      ),
     ),
-    home: const Directionality(textDirection: TextDirection.rtl, child: Home()),
+    home: const Directionality(textDirection: TextDirection.rtl, child: ViralHome()),
   );
 }
 
-void toast(BuildContext context, Object message) {
-  if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message.toString())));
+class ViralHome extends StatefulWidget {
+  const ViralHome({super.key});
+  @override State<ViralHome> createState() => _ViralHomeState();
+}
+
+class _ViralHomeState extends State<ViralHome> {
+  int tab = 0, lengthSeconds = 30, number = 3;
+  double startSeconds = 0;
+  String category = 'بودكاست';
+  String? selected;
+  String? chosenName;
+  VideoPlayerController? player;
+  bool cutting = false;
+  List<String> clips = [];
+  String progress = '';
+  final categories = ['بودكاست', 'قصص', 'لحظات', 'قرآن'];
+
+  @override
+  void initState() {
+    super.initState();
+    loadClips();
   }
-}
 
-Widget heading(String text, [String? sub]) => Padding(
-  padding: const EdgeInsets.only(bottom: 12, top: 16),
-  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text(text, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
-    if (sub != null) Text(sub, style: const TextStyle(color: muted)),
-  ]),
-);
+  Future<void> loadClips() async {
+    try {
+      final pref = await SharedPreferences.getInstance();
+      final paths = pref.getStringList('saved_clips') ?? [];
+      final good = paths.where((p) => File(p).existsSync()).toList();
+      if (mounted) setState(() => clips = good);
+    } catch (_) {
+      // Storage failure must never prevent the home screen from opening.
+    }
+  }
 
-class Home extends StatefulWidget {
-  const Home({super.key});
-  @override State<Home> createState() => _HomeState();
-}
-class _HomeState extends State<Home> {
-  int index = 0;
-  final labels = ['الرئيسية', 'المصادر', 'القص', 'المقاطع', 'حساباتي'];
-  @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      backgroundColor: bg,
-      title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('VIRAL CLIPS AI', style: TextStyle(
-            letterSpacing: 2.7, color: mint, fontSize: 11, fontWeight: FontWeight.w900)),
-        Text(labels[index], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+  Future<void> saveClips() async {
+    try {
+      final pref = await SharedPreferences.getInstance();
+      await pref.setStringList('saved_clips', clips.take(100).toList());
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    player?.dispose();
+    super.dispose();
+  }
+
+  void message(Object value) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(behavior: SnackBarBehavior.floating, content: Text(value.toString())),
+    );
+  }
+
+  Future<void> showVideo(String filename, {bool isSource = false}) async {
+    VideoPlayerController? newPlayer;
+    try {
+      newPlayer = VideoPlayerController.file(File(filename));
+      await newPlayer.initialize();
+      await newPlayer.setLooping(true);
+      if (!mounted) {
+        await newPlayer.dispose();
+        return;
+      }
+      final previous = player;
+      setState(() {
+        selected = filename;
+        player = newPlayer;
+        if (isSource) startSeconds = 0;
+      });
+      if (previous != null) await previous.dispose();
+      await newPlayer.play();
+    } catch (e) {
+      await newPlayer?.dispose();
+      message('تعذرت معاينة الفيديو. تأكد من نوع الملف. ' + e.toString());
+    }
+  }
+
+  Future<void> pickVideo() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.video, allowMultiple: false, withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      if (file.path == null) {
+        message('الملف غير قابل للقراءة على هذا الجهاز');
+        return;
+      }
+      chosenName = file.name;
+      await showVideo(file.path!, isSource: true);
+    } catch (e) {
+      message('مشكلة في اختيار الفيديو: ' + e.toString());
+    }
+  }
+
+  int get durationMs => player == null || !player!.value.isInitialized
+      ? 0 : player!.value.duration.inMilliseconds;
+
+  Future<void> makeClips() async {
+    if (cutting || selected == null || durationMs <= 1000) {
+      message('اختر فيديو من الجهاز أولاً');
+      return;
+    }
+    final source = selected!;
+    final videoDurationMs = durationMs;
+    final startMs = (startSeconds * 1000).round();
+    final lengthMs = lengthSeconds * 1000;
+    setState(() { cutting = true; progress = 'جارٍ تجهيز القص...'; tab = 0; });
+    var successes = 0;
+    try {
+      for (var i = 0; i < number; i++) {
+        final position = startMs + i * lengthMs;
+        if (position >= videoDurationMs - 1000) break;
+        final currentLength = math.min(lengthMs, videoDurationMs - position);
+        if (mounted) {
+          setState(() => progress = 'قص المقطع ' + (i + 1).toString() + ' من ' + number.toString());
+        }
+        final output = await channel.invokeMethod<String>('trim', {
+          'path': source, 'startMs': position, 'durationMs': currentLength,
+        });
+        if (output == null || !File(output).existsSync()) {
+          throw Exception('لم ينتج التطبيق ملف فيديو');
+        }
+        successes++;
+        if (mounted) setState(() => clips.insert(0, output));
+        await saveClips();
+      }
+      if (successes == 0) throw Exception('ماكو وقت كافي من الفيديو حتى نقصه');
+      message('تم تجهيز ' + successes.toString() + ' مقاطع بنجاح');
+      if (mounted) setState(() => tab = 1);
+    } on PlatformException catch (e) {
+      message('ما قدرنا نقص هذا الترميز. جرب MP4 H.264. ' + (e.message ?? e.code));
+    } catch (e) {
+      message('فشل القص: ' + e.toString());
+    } finally {
+      if (mounted) setState(() { cutting = false; progress = ''; });
+    }
+  }
+
+  Future<void> shareClip(String path) async {
+    if (!File(path).existsSync()) {
+      message('ملف المقطع مو موجود');
+      return;
+    }
+    try {
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile(path, mimeType: 'video/mp4')],
+        text: 'مقطع قصير من Viral Clips AI',
+      ));
+    } catch (e) {
+      message('تعذرت المشاركة: ' + e.toString());
+    }
+  }
+
+  Future<void> deleteClip(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+      if (mounted) setState(() => clips.remove(path));
+      await saveClips();
+    } catch (e) {
+      message('تعذر الحذف: ' + e.toString());
+    }
+  }
+
+  String clock(int seconds) =>
+      (seconds ~/ 60).toString().padLeft(2, '0') + ':' +
+      (seconds % 60).toString().padLeft(2, '0');
+
+  Widget caption(String title, String sub) => Padding(
+    padding: const EdgeInsets.only(top: 14, bottom: 10),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+      Text(sub, style: const TextStyle(fontSize: 13, color: muted, height: 1.65)),
+    ]),
+  );
+
+  Widget homeTab() => ListView(padding: const EdgeInsets.fromLTRB(18, 6, 18, 35), children: [
+    Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(
+          begin: Alignment.topRight, end: Alignment.bottomLeft,
+          colors: [Color(0xFF453A7B), Color(0xFF254A65), Color(0xFF156056)],
+        ),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Icon(Icons.auto_awesome_rounded, size: 32, color: accent),
+        const SizedBox(height: 14),
+        const Text('فيديو طويل، مقاطع جاهزة',
+          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, height: 1.25)),
+        const SizedBox(height: 8),
+        const Text('قص المقاطع على جهازك مباشرة، بدون سيرفر أو تسجيل دخول.',
+          style: TextStyle(color: Color(0xFFE0F4F4))),
       ]),
     ),
-    body: IndexedStack(index: index, children: [
-      Landing(onSelect: (i) => setState(() => index = i)),
-      const Channels(), const Studio(), const Library(), const Accounts(),
-    ]),
+    caption('اختيار الفيديو', 'اختر فيديو MP4 محفوظاً بجهازك، أو ملفاً تملك حق استخدامه.'),
+    Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
+      if (player != null && player!.value.isInitialized)
+        ClipRRect(borderRadius: BorderRadius.circular(15),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 240),
+            child: AspectRatio(
+              aspectRatio: player!.value.aspectRatio,
+              child: VideoPlayer(player!),
+            ),
+          )),
+      if (chosenName != null) Padding(
+        padding: const EdgeInsets.all(10),
+        child: Text(chosenName!, maxLines: 2, overflow: TextOverflow.ellipsis)),
+      SizedBox(width: double.infinity, child: FilledButton.icon(
+        onPressed: cutting ? null : pickVideo,
+        icon: const Icon(Icons.video_library_outlined),
+        label: const Text('اختيار فيديو من الجهاز'),
+      )),
+    ])),
+    caption('إعدادات القص', 'حدد بداية القص، مدة كل مقطع، وعدد المقاطع المتتابعة.'),
+    Card(child: Padding(padding: const EdgeInsets.all(17), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text('بداية القص', style: TextStyle(fontWeight: FontWeight.w700)),
+          Text(clock(startSeconds.round()) + ' / ' + clock(durationMs ~/ 1000),
+            style: const TextStyle(color: accent)),
+        ]),
+        Slider(
+          value: startSeconds.clamp(0, math.max(1.0, durationMs / 1000 - 1)),
+          max: math.max(1.0, durationMs / 1000 - 1),
+          onChanged: selected == null || cutting ? null :
+            (v) {
+              setState(() => startSeconds = v);
+              player?.seekTo(Duration(milliseconds: (v * 1000).round()));
+            },
+        ),
+        const SizedBox(height: 10),
+        const Text('مدة المقطع', style: TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 7, runSpacing: 7, children: [15, 30, 40, 60].map((n) =>
+          ChoiceChip(label: Text(n.toString() + ' ثانية'),
+            selected: lengthSeconds == n,
+            onSelected: cutting ? null : (_) => setState(() => lengthSeconds = n))).toList()),
+        const SizedBox(height: 15),
+        const Text('نوع المحتوى', style: TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 7, runSpacing: 7, children: categories.map((c) =>
+          ChoiceChip(label: Text(c), selected: category == c,
+            onSelected: cutting ? null : (_) => setState(() => category = c))).toList()),
+        const SizedBox(height: 15),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text('عدد المقاطع', style: TextStyle(fontWeight: FontWeight.w700)),
+          Text(number.toString(), style: const TextStyle(color: accent, fontSize: 20)),
+        ]),
+        Slider(
+          value: number.toDouble(), min: 1, max: 6, divisions: 5,
+          onChanged: cutting ? null : (v) => setState(() => number = v.round())),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: selected == null || cutting ? null : makeClips,
+          icon: const Icon(Icons.content_cut_rounded),
+          label: const Text('قص الآن'),
+        ),
+        if (cutting) ...[
+          const SizedBox(height: 14),
+          const LinearProgressIndicator(),
+          Padding(padding: const EdgeInsets.only(top: 9),
+              child: Text(progress, textAlign: TextAlign.center)),
+        ],
+      ],
+    ))),
+    const SizedBox(height: 12),
+    const Text('القص دقيق تقريبياً عند الإطارات الرئيسية. يدعم الفيديوهات المتوافقة مع ترميز MP4.',
+      style: TextStyle(color: muted, fontSize: 12, height: 1.7)),
+  ]);
+
+  Widget clipsTab() => ListView(padding: const EdgeInsets.all(18), children: [
+    caption('مقاطعك الجاهزة', 'كل المقاطع محفوظة محلياً. اضغط مشاركة لإرسال المقطع إلى تيك توك أو أي تطبيق آخر.'),
+    if (clips.isEmpty) const Card(child: Padding(
+      padding: EdgeInsets.all(25),
+      child: Column(children: [
+        Icon(Icons.movie_creation_outlined, size: 45, color: purple),
+        SizedBox(height: 10),
+        Text('بعدك ما قصيت أي مقطع'),
+        Text('ارجع للاستوديو واختر فيديو', style: TextStyle(color: muted)),
+      ]),
+    )),
+    ...clips.asMap().entries.map((item) {
+      final path = item.value;
+      return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+        ListTile(
+          leading: const CircleAvatar(backgroundColor: Color(0xFF324A52),
+            child: Icon(Icons.play_arrow, color: accent)),
+          title: Text('المقطع ' + (item.key + 1).toString()),
+          subtitle: Text(path.split('/').last, maxLines: 1, overflow: TextOverflow.ellipsis),
+          onTap: () async { await showVideo(path); if (mounted) setState(() => tab = 0); },
+        ),
+        Row(children: [
+          Expanded(child: FilledButton.icon(onPressed: () => shareClip(path),
+            icon: const Icon(Icons.share_outlined), label: const Text('مشاركة'))),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(tooltip: 'حذف', onPressed: () => deleteClip(path),
+            icon: const Icon(Icons.delete_outline)),
+        ]),
+      ])));
+    }),
+  ]);
+
+  Widget aboutTab() => ListView(padding: const EdgeInsets.all(18), children: [
+    caption('عن التطبيق', 'إصدار 0.4.0 — مصمم للأندرويد'),
+    const Card(child: Padding(padding: EdgeInsets.all(20), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('VIRAL CLIPS AI', style: TextStyle(fontSize: 20,
+          letterSpacing: 2, fontWeight: FontWeight.w900, color: accent)),
+        SizedBox(height: 12),
+        Text('القص يعمل داخل تلفونك، حتى بدون إنترنت.'),
+        SizedBox(height: 10),
+        Text('نشر تيك توك يتم عن طريق نافذة مشاركة أندرويد، مو نشر تلقائي للحساب.'),
+        SizedBox(height: 10),
+        Text('تحويل الفيديو إلى عمودي 9:16، توليد الترجمة، واختيار اللقطات بالذكاء الاصطناعي غير متوفرة بهذي النسخة.'),
+        SizedBox(height: 15),
+        Text('حقوق التطبيق © mortadaa', style: TextStyle(color: muted)),
+      ],
+    ))),
+  ]);
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      titleSpacing: 18,
+      title: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('VIRAL CLIPS AI', style: TextStyle(
+          color: accent, fontSize: 12, letterSpacing: 2.4, fontWeight: FontWeight.w900)),
+        Text('استوديو المقاطع', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+      ]),
+      actions: const [
+        Padding(padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Icon(Icons.video_camera_back_outlined, color: purple)),
+      ],
+    ),
+    body: SafeArea(child: IndexedStack(index: tab, children: [homeTab(), clipsTab(), aboutTab()])),
     bottomNavigationBar: NavigationBar(
-      selectedIndex: index, backgroundColor: surface,
-      indicatorColor: const Color(0xFF38315B),
-      onDestinationSelected: (i) => setState(() => index = i),
+      selectedIndex: tab,
+      backgroundColor: panel,
+      indicatorColor: const Color(0xFF36594F),
+      onDestinationSelected: (v) => setState(() => tab = v),
       destinations: const [
-        NavigationDestination(icon: Icon(Icons.home_outlined), label: 'الرئيسية'),
-        NavigationDestination(icon: Icon(Icons.subscriptions_outlined), label: 'المصادر'),
-        NavigationDestination(icon: Icon(Icons.cut_outlined), label: 'القص'),
-        NavigationDestination(icon: Icon(Icons.movie_filter_outlined), label: 'مقاطعي'),
-        NavigationDestination(icon: Icon(Icons.manage_accounts_outlined), label: 'الحسابات'),
+        NavigationDestination(icon: Icon(Icons.content_cut_outlined), label: 'الاستوديو'),
+        NavigationDestination(icon: Icon(Icons.video_collection_outlined), label: 'مقاطعك'),
+        NavigationDestination(icon: Icon(Icons.info_outline_rounded), label: 'عن التطبيق'),
       ],
     ),
   );
-}
-
-class Landing extends StatelessWidget {
-  final ValueChanged<int> onSelect;
-  const Landing({super.key, required this.onSelect});
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(18),
-    children: [
-      Container(padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(25),
-          gradient: const LinearGradient(colors: [
-            Color(0xFF49378F), Color(0xFF264069), Color(0xFF0D5858)
-          ])),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Icon(Icons.auto_awesome, size: 38, color: mint),
-          const SizedBox(height: 20),
-          const Text('خلي اللحظة تصير حكاية',
-              style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 10),
-          const Text('استوديو عربي لقص الفيديوهات المرخصة، معاينتها، وجدولتها لحسابات تيك توك الرسمية.'),
-          const SizedBox(height: 20),
-          FilledButton.icon(onPressed: () => onSelect(2),
-              icon: const Icon(Icons.edit), label: const Text('ابدأ بالمونتاج')),
-        ])),
-      heading('طريقة الاستخدام'),
-      ...[
-        ('01', 'أضف قنوات يوتيوب', 'لمتابعة معلومات المقاطع وروابطها', 1),
-        ('02', 'ارفع فيديو مسموحاً باستخدامه', 'القص يتم على سيرفرك باستخدام FFmpeg', 2),
-        ('03', 'راجع المقطع', 'معاينة عمودية قبل النشر', 3),
-        ('04', 'اربط حسابك وجدول', 'إرسال بتصريح رسمي بعد موافقتك', 4)
-      ].map((v) => Card(child: ListTile(
-          onTap: () => onSelect(v.$4),
-          leading: CircleAvatar(backgroundColor: const Color(0xFF36304F),
-              child: Text(v.$1, style: const TextStyle(color: mint))),
-          title: Text(v.$2, style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text(v.$3),
-          trailing: const Icon(Icons.chevron_left)))),
-      const Padding(padding: EdgeInsets.all(10), child: Text(
-          'هذه نسخة تجريبية تحتاج سيرفراً منفصلاً وبيانات TikTok وYouTube الرسمية.',
-          style: TextStyle(color: muted))),
-    ]);
-}
-
-class Channels extends StatefulWidget {
-  const Channels({super.key});
-  @override State<Channels> createState() => _ChannelsState();
-}
-class _ChannelsState extends State<Channels> {
-  final input = TextEditingController();
-  String category = kinds.first;
-  List<dynamic> data = [];
-  bool busy = false;
-  @override void initState() { super.initState(); refresh(); }
-  @override void dispose() { input.dispose(); super.dispose(); }
-  Future<void> refresh() async {
-    try { final v = await Api.instance.call('GET', '/channels');
-      if (mounted) setState(() => data = v as List<dynamic>);
-    } catch (_) {}
-  }
-  Future<void> add() async {
-    setState(() => busy = true);
-    try {
-      await Api.instance.call('POST', '/channels', {'url': input.text.trim(), 'category': category});
-      input.clear(); await refresh();
-      if (mounted) toast(context, 'تمت إضافة القناة');
-    } catch (e) { if (mounted) toast(context, e); }
-    finally { if (mounted) setState(() => busy = false); }
-  }
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(18),
-    children: [
-      heading('قنوات يوتيوب', 'استخدم فقط المحتوى الذي تمتلك حقوق إعادة نشره.'),
-      Card(child: Padding(padding: const EdgeInsets.all(14),
-        child: Column(children: [
-          TextField(controller: input, decoration: const InputDecoration(
-              labelText: 'رابط قناة يوتيوب', prefixIcon: Icon(Icons.link))),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(initialValue: category,
-            decoration: const InputDecoration(labelText: 'النوع'),
-            items: kinds.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-            onChanged: (v) => setState(() => category = v ?? category)),
-          const SizedBox(height: 12),
-          SizedBox(width: double.infinity, child: FilledButton(
-            onPressed: busy ? null : add, child: const Text('إضافة قناة'))),
-        ]))),
-      heading('المصادر المحفوظة (' + data.length.toString() + ')'),
-      OutlinedButton.icon(onPressed: refresh, icon: const Icon(Icons.refresh),
-          label: const Text('تحديث القائمة')),
-      ...data.map((c) => Card(child: ListTile(
-        title: Text((c['title'] ?? '').toString()),
-        subtitle: Text((c['category'] ?? '').toString()),
-        leading: const Icon(Icons.smart_display_outlined, color: mint),
-        trailing: IconButton(icon: const Icon(Icons.sync), onPressed: () async {
-          try {
-            await Api.instance.call('POST', '/channels/' + c['id'].toString() + '/sync');
-            if (context.mounted) toast(context, 'تم تحديث فيديوهات القناة');
-          } catch (e) { if (context.mounted) toast(context, e); }
-        }),
-      ))),
-    ]);
-}
-
-class Studio extends StatefulWidget {
-  const Studio({super.key});
-  @override State<Studio> createState() => _StudioState();
-}
-class _StudioState extends State<Studio> {
-  PlatformFile? file;
-  bool rights = false, captions = false, busy = false;
-  String category = kinds.first, asset = '';
-  int seconds = 35, count = 3;
-  List<dynamic> assets = [], jobs = [];
-  @override void initState() {super.initState(); refresh();}
-  Future<void> refresh() async {
-    try {
-      final a = await Api.instance.call('GET', '/assets');
-      final b = await Api.instance.call('GET', '/jobs');
-      if (mounted) setState(() { assets = a as List<dynamic>; jobs = b as List<dynamic>; });
-    } catch (_) {}
-  }
-  Future<void> choose() async {
-    final picked = await FilePicker.platform.pickFiles(type: FileType.custom,
-        allowedExtensions: ['mp4','mov','webm','mkv']);
-    if (picked != null && picked.files.isNotEmpty && mounted) {
-      setState(() => file = picked.files.first);
-    }
-  }
-  Future<void> upload() async {
-    if (!rights || file == null) return toast(context, 'اختر ملفاً وأكد حقوق استخدامه');
-    setState(() => busy = true);
-    try {
-      final r = await Api.instance.upload(file!);
-      if (mounted) setState(() => asset = r['id'].toString());
-      await refresh();
-      if (mounted) toast(context, 'اكتمل رفع الفيديو');
-    } catch (e) { if (mounted) toast(context, e); }
-    finally {if (mounted) setState(() => busy = false);}
-  }
-  Future<void> create() async {
-    if (asset.isEmpty) return toast(context, 'ارفع فيديو أولاً');
-    setState(() => busy = true);
-    try {
-      await Api.instance.call('POST', '/jobs', {
-        'asset_id': asset, 'category': category, 'seconds': seconds,
-        'count': count, 'subtitles': captions
-      });
-      await refresh();
-      if (mounted) toast(context, 'تم تسجيل مهمة القص');
-    } catch (e) {if (mounted) toast(context, e);}
-    finally {if (mounted) setState(() => busy = false);}
-  }
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(18),
-    children: [
-      heading('استوديو المقاطع', 'مقاطع رأسية من 20 إلى 60 ثانية.'),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        ListTile(onTap: busy ? null : choose,
-          leading: const Icon(Icons.video_file_outlined, size: 36, color: mint),
-          title: Text(file?.name ?? 'اختر ملف فيديو'),
-          subtitle: const Text('MP4 · MOV · MKV · WEBM')),
-        CheckboxListTile(value: rights,
-          title: const Text('أمتلك حقوق الفيديو أو عندي إذن باستخدامه'),
-          onChanged: (v) => setState(() => rights = v ?? false)),
-        FilledButton.icon(onPressed: busy ? null : upload,
-            icon: const Icon(Icons.cloud_upload), label: const Text('رفع الفيديو')),
-      ]))),
-      heading('خيارات القص'),
-      if (assets.isNotEmpty) DropdownButtonFormField<String>(
-        value: assets.any((v) => v['id'].toString() == asset) ? asset : null,
-        hint: const Text('اختر ملفاً مرفوعاً'),
-        items: assets.map((v) => DropdownMenuItem<String>(
-            value: v['id'].toString(), child: Text(v['filename'].toString()))).toList(),
-        onChanged: (v) => setState(() => asset = v ?? '')),
-      const SizedBox(height: 12),
-      DropdownButtonFormField<String>(initialValue: category,
-        items: kinds.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-        onChanged: (v) => setState(() => category = v ?? category)),
-      Text('طول المقطع: ' + seconds.toString() + ' ثانية'),
-      Slider(min: 20, max: 60, divisions: 8, value: seconds.toDouble(),
-        onChanged: (v) => setState(() => seconds = v.round())),
-      Text('العدد: ' + count.toString()),
-      Slider(min: 1, max: 6, divisions: 5, value: count.toDouble(),
-        onChanged: (v) => setState(() => count = v.round())),
-      SwitchListTile(value: captions,
-        title: const Text('إضافة ترجمة تلقائية'),
-        subtitle: const Text('تحتاج تفعيل نموذج التفريغ في السيرفر، ويفضل مراجعة النص'),
-        onChanged: (v) => setState(() => captions = v)),
-      FilledButton.icon(onPressed: busy ? null : create,
-          icon: const Icon(Icons.auto_awesome), label: const Text('إنشاء المقاطع')),
-      heading('حالة المهام'),
-      OutlinedButton.icon(onPressed: refresh, icon: const Icon(Icons.refresh), label: const Text('تحديث')),
-      ...jobs.take(15).map((j) => Card(child: ListTile(
-        leading: const Icon(Icons.movie_creation_outlined),
-        title: Text(j['status'].toString()), subtitle: Text(j['message'].toString())))),
-    ]);
-}
-
-class Library extends StatefulWidget {
-  const Library({super.key});
-  @override State<Library> createState() => _LibraryState();
-}
-class _LibraryState extends State<Library> {
-  List<dynamic> clips = [], accounts = [];
-  String? account;
-  bool busy = false;
-  int gap = 120;
-  @override void initState() {super.initState(); refresh();}
-  Future<void> refresh() async {
-    try {
-      final a = await Api.instance.call('GET', '/clips');
-      final b = await Api.instance.call('GET', '/tiktok/accounts');
-      if (mounted) setState(() {clips = a as List<dynamic>; accounts = b as List<dynamic>;});
-    } catch (_) {}
-  }
-  Future<void> schedule(Map<dynamic,dynamic> clip) async {
-    if (account == null) return toast(context, 'اختر حساب تيك توك أولاً');
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => Directionality(textDirection: TextDirection.rtl,
-        child: VideoPreview(clip: clip))));
-    if (!mounted) return;
-    final creator = await Api.instance.call('GET', '/tiktok/creator?account_id=' +
-      Uri.encodeQueryComponent(account!));
-    if (!mounted) return;
-    final privacy = (creator['privacy_level_options'] as List<dynamic>? ?? []);
-    if (privacy.isEmpty) return toast(context, 'لا توجد صلاحيات نشر متاحة');
-    String selection = privacy.first.toString();
-    final caption = TextEditingController(text: clip['title'].toString());
-    bool approved = false;
-    try {
-      final ok = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(
-        builder: (ctx, update) => AlertDialog(
-          title: const Text('موافقة على جدولة فيديو'),
-          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('الحساب: ' + (creator['creator_nickname'] ?? '').toString()),
-              TextField(controller: caption,
-                  decoration: const InputDecoration(labelText: 'وصف الفيديو')),
-              DropdownButtonFormField<String>(initialValue: selection,
-                items: privacy.map((e) => DropdownMenuItem<String>(
-                  value: e.toString(), child: Text(e.toString()))).toList(),
-                onChanged: (v) => update(() => selection = v ?? selection)),
-              CheckboxListTile(value: approved,
-                title: const Text('عاينت هذا المقطع وأملك حقوقه وأوافق على جدولته لهذا الحساب'),
-                onChanged: (v) => update(() => approved = v ?? false)),
-            ])),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
-            FilledButton(onPressed: approved ? () => Navigator.pop(ctx, true) : null,
-              child: const Text('موافقة وجدولة')),
-          ],
-        )));
-      if (ok != true) return;
-      setState(() => busy = true);
-      await Api.instance.call('POST', '/schedule/queue', {
-        'account_id': account, 'clip_id': clip['id'], 'confirm': true, 'reviewed': true,
-        'privacy': selection, 'caption': caption.text.trim(),
-        'min_minutes': gap, 'max_minutes': gap + 60, 'max_daily': 4,
-        'tz_offset_minutes': DateTime.now().timeZoneOffset.inMinutes,
-        'quiet_start': 0, 'quiet_end': 7,
-      });
-      if (mounted) toast(context, 'تمت إضافة المقطع إلى جدول النشر');
-    } catch (e) {if (mounted) toast(context, e);}
-    finally {caption.dispose(); if (mounted) setState(() => busy = false);}
-  }
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(18),
-    children: [
-      heading('مكتبتي', 'عاين كل مقطع قبل إرسال الموافقة.'),
-      OutlinedButton.icon(onPressed: refresh, icon: const Icon(Icons.refresh),
-          label: const Text('تحديث المقاطع')),
-      if (accounts.isNotEmpty) DropdownButtonFormField<String>(
-        hint: const Text('اختر حساب النشر'), value: account,
-        items: accounts.map((a) => DropdownMenuItem<String>(
-          value: a['id'].toString(), child: Text(a['nickname'].toString()))).toList(),
-        onChanged: (v) => setState(() => account = v)),
-      Text('الفاصل بين المقاطع: ' + gap.toString() + ' دقيقة'),
-      Slider(min: 60, max: 300, divisions: 8, value: gap.toDouble(),
-        onChanged: (v) => setState(() => gap = v.round())),
-      if (clips.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(30),
-          child: Text('ماكو مقاطع حالياً. اصنع أول مقطع من الاستوديو.'))),
-      ...clips.map((c) => Card(child: Padding(padding: const EdgeInsets.all(13),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(c['title'].toString(), style: const TextStyle(
-              fontSize: 16, fontWeight: FontWeight.bold)),
-          Text(c['duration'].toString() + ' ثانية · ' +
-              c['category'].toString(), style: const TextStyle(color: muted)),
-          Wrap(spacing: 8, children: [
-            OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => Directionality(textDirection: TextDirection.rtl,
-                  child: VideoPreview(clip: c)))),
-              icon: const Icon(Icons.play_arrow), label: const Text('معاينة')),
-            FilledButton.icon(onPressed: busy ? null : () => schedule(c),
-              icon: const Icon(Icons.schedule_send), label: const Text('جدولة')),
-          ]),
-        ])))),
-    ]);
-}
-
-class VideoPreview extends StatefulWidget {
-  final Map<dynamic,dynamic> clip;
-  const VideoPreview({super.key, required this.clip});
-  @override State<VideoPreview> createState() => _VideoPreviewState();
-}
-class _VideoPreviewState extends State<VideoPreview> {
-  VideoPlayerController? controller;
-  String? error;
-  @override void initState() {super.initState(); initialize();}
-  Future<void> initialize() async {
-    VideoPlayerController? value;
-    try {
-      value = VideoPlayerController.networkUrl(
-        Api.instance.at('/clips/' + widget.clip['id'].toString() + '/media'),
-        httpHeaders: Api.instance.headers);
-      await value.initialize();
-      await value.setLooping(true);
-      await value.play();
-      if (mounted) setState(() => controller = value);
-      else await value.dispose();
-    } catch (e) {
-      await value?.dispose();
-      if (mounted) setState(() => error = e.toString());
-    }
-  }
-  @override void dispose() {controller?.dispose(); super.dispose();}
-  @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('معاينة المقطع')),
-    body: Center(child: error != null ? Text(error!) : controller == null
-      ? const CircularProgressIndicator()
-      : AspectRatio(aspectRatio: controller!.value.aspectRatio,
-          child: VideoPlayer(controller!))),
-  );
-}
-
-class Accounts extends StatefulWidget {
-  const Accounts({super.key});
-  @override State<Accounts> createState() => _AccountsState();
-}
-class _AccountsState extends State<Accounts> {
-  final url = TextEditingController(text: Api.instance.server);
-  final key = TextEditingController(text: Api.instance.key);
-  List<dynamic> accounts = [];
-  String status = '';
-  bool busy = false;
-  @override void initState() {super.initState(); refresh();}
-  @override void dispose() {url.dispose(); key.dispose(); super.dispose();}
-  Future<void> refresh() async {
-    try {
-      final a = await Api.instance.call('GET', '/health');
-      final b = await Api.instance.call('GET', '/tiktok/status');
-      if (mounted) setState(() {
-        status = a['ok'] == true ? 'متصل' : 'غير متصل';
-        accounts = b['accounts'] as List<dynamic>? ?? [];
-      });
-    } catch (_) {
-      if (mounted) setState(() => status = 'غير متصل');
-    }
-  }
-  Future<void> save() async {
-    try {
-      await Api.instance.save(url.text, key.text);
-      await refresh(); if (mounted) toast(context, 'تم حفظ إعدادات السيرفر');
-    } catch (e) {if (mounted) toast(context, e);}
-  }
-  Future<void> connect() async {
-    try {
-      final data = await Api.instance.call('GET', '/tiktok/oauth/url');
-      final uri = Uri.parse(data['url'].toString());
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        throw Exception('لم يفتح رابط TikTok');
-      }
-    } catch (e) {if (mounted) toast(context, e);}
-  }
-  Future<void> unlink(String id) async {
-    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('فصل الحساب'),
-      content: const Text('هل تريد إلغاء صلاحية هذا الحساب؟'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('لا')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('فصل')),
-      ]));
-    if (ok != true) return;
-    setState(() => busy = true);
-    try {
-      await Api.instance.call('DELETE', '/tiktok/accounts/' + Uri.encodeComponent(id));
-      await refresh();
-      if (mounted) toast(context, 'تم فصل الحساب');
-    } catch (e) {if (mounted) toast(context, e);}
-    finally {if (mounted) setState(() => busy = false);}
-  }
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(18),
-    children: [
-      heading('إعداد الاتصال', 'عنوان HTTPS الخاص بسيرفر المقاطع.'),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        TextField(controller: url, decoration: const InputDecoration(
-          labelText: 'عنوان السيرفر', hintText: 'https://your-server.example')),
-        const SizedBox(height: 12),
-        TextField(controller: key, obscureText: true,
-            decoration: const InputDecoration(labelText: 'مفتاح API')),
-        const SizedBox(height: 10),
-        FilledButton.icon(onPressed: save, icon: const Icon(Icons.save),
-            label: const Text('حفظ الإعدادات')),
-        Text('حالة السيرفر: ' + status, style: const TextStyle(color: mint)),
-      ]))),
-      heading('حسابات تيك توك', 'تقدر تربط حساباً أو أكثر وتفصل أي حساب.'),
-      FilledButton.icon(onPressed: busy ? null : connect,
-        icon: const Icon(Icons.link), label: const Text('ربط حساب تيك توك')),
-      const SizedBox(height: 8),
-      OutlinedButton.icon(onPressed: refresh,
-          icon: const Icon(Icons.refresh), label: const Text('تحديث الحسابات')),
-      ...accounts.map((a) => Card(child: ListTile(
-        leading: const Icon(Icons.account_circle, color: mint),
-        title: Text(a['nickname'].toString()),
-        trailing: IconButton(tooltip: 'فصل الحساب',
-          onPressed: busy ? null : () => unlink(a['id'].toString()),
-          icon: const Icon(Icons.link_off)),
-      ))),
-      heading('حول التطبيق'),
-      const Card(child: Padding(padding: EdgeInsets.all(18),
-        child: Text('Viral Clips AI · 0.3.1\nحقوق التطبيق © mortadaa\n'
-          'نسخة عميل أولية: تحتاج Backend آمن وشهادة HTTPS ومفاتيح TikTok رسمية.'))),
-    ]);
 }
