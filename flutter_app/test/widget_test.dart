@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:viral_clips_ai/local_library.dart';
 import 'package:viral_clips_ai/main.dart';
 import 'package:viral_clips_ai/source_tools.dart';
 
@@ -28,6 +30,25 @@ void main() {
     expect(find.text('إضافة الحساب إلى قائمتي'), findsOneWidget);
     expect(find.text('اسم الحساب أو رابط TikTok'), findsOneWidget);
     expect(find.textContaining('مو ربط رسمي'), findsOneWidget);
+  });
+
+
+  test('local storage JSON migration parser keeps only valid entries', () {
+    expect(LocalLibrary.parseList('["https://youtu.be/abc", 4, "", "@valid"]'),
+       ['https://youtu.be/abc', '@valid']);
+    expect(() => LocalLibrary.parseList('not JSON'), throwsFormatException);
+  });
+
+  testWidgets('YouTube channel link survives fallback to preferences', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const ViralApp());
+    await tester.tap(find.text('يوتيوب').last);
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).first, 'https://www.youtube.com/@sample');
+    await tester.tap(find.text('فحص الرابط وإضافته'));
+    await tester.pumpAndSettle();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('laqta_sources'), contains('https://www.youtube.com/@sample'));
   });
 
   test('YouTube URL recognition validates exact hosts', () {
