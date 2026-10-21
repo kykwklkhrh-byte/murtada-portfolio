@@ -268,7 +268,7 @@ class _ViralHomeState extends State<ViralHome> {
         icon: const Icon(Icons.video_library_outlined),
         label: const Text('اختيار فيديو من الجهاز'),
       )),
-    ])),
+    ]))),
     caption('إعدادات القص', 'حدد بداية القص، مدة كل مقطع، وعدد المقاطع المتتابعة.'),
     Card(child: Padding(padding: const EdgeInsets.all(17), child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch, children: [
