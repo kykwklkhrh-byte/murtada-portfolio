@@ -45,29 +45,26 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p = Path('lib/chat_screen.dart')
-          s = p.read_text()
-          old = """final picked = await FilePicker.platform.pickFiles(
-                  type: kind == 'video' ? FileType.video : FileType.any, withData: false);
-                if (picked == null || picked.files.isEmpty) return;
-                final file = picked.files.single;
-                name = file.name;
-                if (file.size > _maxAttachmentBytes) throw StateError('الحجم المسموح 18 ميگابايت');
-                bytes = file.bytes != null ? Uint8List.fromList(file.bytes!) : await File(file.path!).readAsBytes();"""
-          new = """final file = await FilePicker.pickFile(type: kind == 'video' ? FileType.video : FileType.any);
-                if (file == null) return;
-                name = file.name;
-                final length = await file.length();
-                if (length != null && length > _maxAttachmentBytes) throw StateError('الحجم المسموح 18 ميگابايت');
-                bytes = await file.readAsBytes();"""
-          assert old in s, 'file picker source changed'
-          s = s.replace(old, new)
-          oldsettings = "      ]))),\\n    ));\\n  }\\n\\n  @override"
-          assert oldsettings in s, 'settings close source changed'
-          s = s.replace(oldsettings, "      ]))),\\n    );\\n  }\\n\\n  @override")
-          oldsheet = "      ]))),\\n    );\\n  }\\n}"
-          assert oldsheet in s, 'sheet close source changed'
-          s = s.replace(oldsheet, "      ])),\\n    );\\n  }\\n}")
-          p.write_text(s)
+          lines = p.read_text().splitlines()
+          first = next(i for i, line in enumerate(lines) if 'final picked = await FilePicker.platform.pickFiles(' in line)
+          last = next(i for i in range(first, len(lines)) if 'bytes = file.bytes != null' in lines[i])
+          lines[first:last+1] = [
+              "        final file = await FilePicker.pickFile(type: kind == 'video' ? FileType.video : FileType.any);",
+              "        if (file == null) return;",
+              "        name = file.name;",
+              "        final length = await file.length();",
+              "        if (length != null && length > _maxAttachmentBytes) throw StateError('الحجم المسموح 18 ميگابايت');",
+              "        bytes = await file.readAsBytes();"
+          ]
+          settings = next(i for i, line in enumerate(lines) if 'void _showRoomSettings()' in line)
+          endsettings = next(i for i in range(settings, len(lines)) if 'void dispose()' in lines[i])
+          prior = next(i for i in range(settings, endsettings) if lines[i].strip() == '));')
+          lines[prior] = '    );'
+          sheet = next(i for i, line in enumerate(lines) if 'void _pickAttachmentSheet()' in line)
+          close = next(i for i in range(sheet, len(lines)) if lines[i].strip() == ']))),')
+          lines[close] = '      ])),'
+          p.write_text('\n'.join(lines) + '\n')
+          print('Patched FilePicker 13 and chat layout')
           PY
           cp /tmp/hasibati_google.json android/app/google-services.json
           rm -f test/widget_test.dart
