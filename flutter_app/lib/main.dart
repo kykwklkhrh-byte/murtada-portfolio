@@ -627,7 +627,7 @@ class _ViralHomeState extends State<ViralHome> {
         title: Text('@$handle', textDirection: TextDirection.ltr),
         subtitle: Text(selectedAccount == handle ? 'محدد للعرض' : 'اضغط لاختيار الحساب'),
         onTap: () => setState(() => selectedAccount = handle),
-        trailing: Wrap(mainAxisSize: MainAxisSize.min, children: [
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           IconButton(tooltip: 'افتح حساب تيك توك',
             onPressed: () => launchExternal('https://www.tiktok.com/@$handle'),
             icon: const Icon(Icons.open_in_new, color: purple)),
