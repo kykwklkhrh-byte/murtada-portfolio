@@ -1,21 +1,21 @@
-# Viral Clips AI – Android APK client
+# لَقطة | LAQTA v0.5.0 — تطبيق قص الفيديوهات للأندرويد
 
-This is the Android Flutter client for the Viral Clips AI FastAPI + FFmpeg backend.
+تطبيق واحد APK، يدعم:
+- قص ملفات MP4 H.264/AAC المحلية دون أي سيرفر، ومعاينة المقاطع وإرسالها عبر مشاركة أندرويد.
+- صفحة يوتيوب: إدخال رابط فيديو أو قناة، جلب عنوان الفيديو (عند توفر oEmbed)، حفظ الرابط وفتحه بموقع يوتيوب.
+- استيراد **روابط HTTPS مباشرة تنتهي بـ .mp4 فقط** مع حد تنزيل 500 MB؛ تحتاج حقوق الملف.
+- صفحة تيك توك: حفظ أسماء حسابات متعددة محلياً، فتح ملف كل حساب، إزالة أي اسم، والمشاركة عبر قائمة أندرويد بعد مراجعة الحساب داخل TikTok.
+- تصميم عربي فاتح باسم «لَقطة»، دون مطالبة بسيرفر أو رقم هاتف لبدء القص.
 
-## GitHub Actions APK
-Open **Actions → Android APK → latest successful run → Artifacts → ViralClipsAI-Android-APK** to download `app-release.apk`.
+### حدود أساسية (لا نريد خداع المستخدم)
+هذا الإصدار **لا يحمّل مقاطع من رابط مشاهدة يوتيوب**: YouTube oEmbed يعرض معلومات ولا يتيح تنزيل الملف. اشتراك Premium لا يعطي حقوق إعادة النشر. يستورد رابط MP4 مباشر مأذون به أو ملف الفيديو الموجود بجهاز المستخدم.
 
-GitHub workflow generates the Android scaffold, analyzes code, runs widget tests, builds a release APK and uploads the unsigned-for-store (debug-key-signed) release artifact.
+حفظ اسم حساب TikTok **ليس OAuth ولا ربطاً رسمياً**. المشاركة تعمل عبر نافذة Android Share، والنشر النهائي يراجعه المستخدم في TikTok. النشر الآلي والإحصاءات تتطلب TikTok Developer App وصلاحية video.publish الممنوحة بعد تسجيل دخول OAuth، ودورة رموز آمنة على السيرفر.
 
-## Requirements
-- Personal backend running over HTTPS with the `APP_API_KEY`
-- YouTube API key for adding source channels
-- TikTok developer app with Login Kit + Content Posting API permissions for real account connecting and posting
-- Media you own or have redistribution permission to use
+القص المحلي يعتمد على MediaExtractor وMediaMuxer، على أقرب إطار رئيسي وليس بالضرورة قصاً دقيقاً على الملّي ثانية. لا توجد ميزة تفريغ ترجمة أو اختيار المشاهد بالذكاء الاصطناعي حتى الآن.
 
-Source channels use the YouTube API for metadata; YouTube Premium does not grant reuse rights or enable downloading via this app.
+### البناء
+GitHub Actions يبني إصدار Android Release ويفحص إطلاق الواجهة على محاكي أندرويد ويقدّم ملف APK.
+فرع \`viral-clips-ai-apk\` من مستودع \`kykwklkhrh-byte/murtada-portfolio\`.
 
-## Version
-Flutter Android client 0.3.1; requires the separately deployed Viral Clips AI backend 0.3.x. No claim of completed live TikTok OAuth or real TikTok publish testing.
-
-© mortadaa.
+حقوق © mortadaa
