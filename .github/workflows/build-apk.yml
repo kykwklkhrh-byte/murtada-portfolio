@@ -23,6 +23,8 @@ jobs:
         run: node --test worker/worker.test.mjs
       - name: Generate Android project files
         run: flutter create --platforms=android --org com.murtadha --project-name murtadha_ai .
+      - name: Remove Flutter starter sample tests
+        run: rm -f test/widget_test.dart analysis_options.yaml
       - name: Add Android permissions
         run: python3 scripts/patch_manifest.py
       - name: Install packages
