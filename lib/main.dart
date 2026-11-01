@@ -83,12 +83,14 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
   final _input = TextEditingController();
   final _endpointField = TextEditingController();
   final _tokenField = TextEditingController();
+  final _geminiKeyField = TextEditingController();
   final _scroll = ScrollController();
 
   final List<ChatSession> _sessions = [];
   String? _currentId;
   String _endpoint = '';
   String _token = '';
+  String _geminiKey = '';
   bool _dark = true;
   bool _sending = false;
   bool _listening = false;
@@ -116,6 +118,7 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
     _input.dispose();
     _endpointField.dispose();
     _tokenField.dispose();
+    _geminiKeyField.dispose();
     _scroll.dispose();
     _speech.stop();
     _tts.stop();
@@ -146,6 +149,7 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
       _endpoint = pref.getString('server_endpoint') ?? '';
       _dark = pref.getBool('dark_mode') ?? true;
       _token = await _secure.read(key: 'private_access_token') ?? '';
+      _geminiKey = await _secure.read(key: 'gemini_api_key') ?? '';
       final stored = pref.getString('chat_history');
       if (stored != null) {
         final items = jsonDecode(stored) as List<dynamic>;
@@ -158,6 +162,7 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
       }
       _endpointField.text = _endpoint;
       _tokenField.text = _token;
+      _geminiKeyField.text = _geminiKey;
     } catch (_) {
       // An invalid older local cache must not prevent launching the app.
       if (_sessions.isEmpty) {
@@ -298,6 +303,91 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
     return u.replace(path: '${u.path.replaceAll(RegExp(r'/$'), '')}/chat');
   }
 
+
+  // Personal-device Gemini mode: key is held in Android encrypted storage,
+  // and is sent only over HTTPS to Google's Gemini API, never to our gateway.
+  Future<String> _askGeminiDirect(List<ChatEntry> messages,
+      Uint8List? image, String imageMime, {String? keyOverride}) async {
+    final key = keyOverride ?? _geminiKey;
+    if (key.trim().isEmpty) throw const FormatException('أضف مفتاح Gemini من الإعدادات.');
+    final uri = Uri.https('generativelanguage.googleapis.com',
+        '/v1beta/models/gemini-2.5-flash:generateContent');
+    final recent = messages.length > 12 ? messages.sublist(messages.length - 12) : messages;
+    final transcript = recent.map((m) =>
+        (m.role == 'assistant' ? 'المساعد: ' : 'المستخدم: ') + m.text).join('\n\n');
+    final parts = <Map<String, dynamic>>[
+      {'text': 'أنت Murtadha AI، مساعد شخصي مهذب وصادق. جاوب بالعراقي إذا المستخدم يحچي بالعراقي. '
+          'ساعد بالدراسة والهندسة والبرمجة، ولا تدعي أنك نفذت أي إجراء خارج التطبيق.\n\n'
+          + transcript + '\n\nأجب على آخر طلب للمستخدم.'},
+    ];
+    if (image != null) {
+      parts.add({'inline_data': {'mime_type': imageMime, 'data': base64Encode(image)}});
+    }
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 22);
+    try {
+      final request = await client.postUrl(uri).timeout(const Duration(seconds: 25));
+      request.headers.set('x-goog-api-key', key.trim());
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+      request.write(jsonEncode({'contents': [
+        {'role': 'user', 'parts': parts}
+      ], 'generationConfig': {'maxOutputTokens': 4096}}));
+      final response = await request.close().timeout(const Duration(seconds: 75));
+      final raw = await utf8.decoder.bind(response).join();
+      Map<String, dynamic> data;
+      try { data = jsonDecode(raw) as Map<String, dynamic>; }
+      catch (_) { throw const FormatException('Google رجّع استجابة غير مفهومة.'); }
+      if (response.statusCode != 200) {
+        final error = (data['error'] is Map) ? data['error'] as Map : <String, dynamic>{};
+        final apiMessage = (error['message'] ?? '').toString();
+        if (response.statusCode == 400 || response.statusCode == 401 ||
+            response.statusCode == 403) {
+          throw const FormatException('مفتاح Gemini غير صحيح أو غير مفعّل. أنشئ مفتاح جديد من Google AI Studio.');
+        }
+        if (response.statusCode == 429) {
+          throw const FormatException('وصلت حد الطلبات المسموح من Google. حاول بوقت آخر.');
+        }
+        if (response.statusCode == 404) {
+          throw const FormatException('نموذج Gemini غير متوفر في حسابك حالياً.');
+        }
+        throw FormatException('Google رجّع خطأ ' + response.statusCode.toString() +
+            (apiMessage.isEmpty ? '.' : ': ' + apiMessage.substring(0, apiMessage.length > 180 ? 180 : apiMessage.length)));
+      }
+      final candidates = data['candidates'] as List<dynamic>? ?? [];
+      final answer = candidates.whereType<Map<String, dynamic>>().expand((candidate) {
+        final content = candidate['content'];
+        if (content is! Map) return <String>[];
+        final rawParts = content['parts'];
+        if (rawParts is! List) return <String>[];
+        return rawParts.whereType<Map>().where((p) => p['thought'] != true)
+            .map((p) => (p['text'] ?? '').toString());
+      }).join('\n').trim();
+      if (answer.isEmpty) throw const FormatException('Gemini ما رجّع نص. جرّب صياغة أبسط.');
+      return answer;
+    } on SocketException {
+      throw const FormatException('ماكو اتصال بالإنترنت. تأكد من الشبكة.');
+    } on HandshakeException {
+      throw const FormatException('تعذّر الاتصال الآمن مع Google.');
+    } finally { client.close(force: true); }
+  }
+
+  Future<void> _testGemini() async {
+    final key = _geminiKeyField.text.trim();
+    if (key.isEmpty) {
+      _notify('أولاً أنشئ مفتاح Gemini والصقه هنا.');
+      return;
+    }
+    _notify('جاري فحص مفتاح Gemini...');
+    try {
+      final reply = await _askGeminiDirect(
+          [ChatEntry(role: 'user', text: 'جاوب فقط بكلمة تم')],
+          null, 'image/jpeg', keyOverride: key);
+      if (mounted) _notify('نجح الاتصال بـ Gemini! ' +
+          reply.substring(0, reply.length > 70 ? 70 : reply.length));
+    } catch (e) {
+      if (mounted) _notify(e is FormatException ? e.message : 'فشل فحص Gemini. تحقق من الشبكة.');
+    }
+  }
+
   Future<String> _askBackend(String provider, List<ChatEntry> messages,
       Uint8List? image, String imageMime) async {
     final uri = _chatUri();
@@ -338,9 +428,9 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
     final text = _input.text.trim();
     final image = _image;
     if (text.isEmpty && image == null) return;
-    if (_chatUri() == null || _token.isEmpty) {
+    if (_geminiKey.isEmpty && (_chatUri() == null || _token.isEmpty)) {
       setState(() => _page = 2);
-      _notify('أول شي اربط السيرفر ورمز الدخول من الإعدادات.');
+      _notify('حتى يجاوبك التطبيق، أضف مفتاح Gemini أولاً. ما تحتاج سيرفر.');
       return;
     }
     final session = _active;
@@ -360,7 +450,11 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
     _persist();
     _scrollToBottom();
     try {
-      final answer = await _askBackend(provider, session.messages, image, imageMime);
+      final useGemini = _geminiKey.isNotEmpty &&
+          (provider == 'gemini' || _chatUri() == null || _token.isEmpty);
+      final answer = useGemini
+          ? await _askGeminiDirect(session.messages, image, imageMime)
+          : await _askBackend(provider, session.messages, image, imageMime);
       if (!mounted) return;
       setState(() => session.messages.add(ChatEntry(role: 'assistant', text: answer)));
       _persist();
@@ -398,16 +492,20 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
   Future<void> _saveSettings() async {
     _endpoint = _endpointField.text.trim().replaceAll(RegExp(r'/$'), '');
     _token = _tokenField.text.trim();
+    _geminiKey = _geminiKeyField.text.trim();
     if (_endpoint.isNotEmpty && _chatUri() == null) {
       _notify('الرابط لازم يكون HTTPS صحيح.');
       return;
     }
     await _secure.write(key: 'private_access_token', value: _token);
+    await _secure.write(key: 'gemini_api_key', value: _geminiKey);
     final pref = await SharedPreferences.getInstance();
     await pref.setString('server_endpoint', _endpoint);
     if (!mounted) return;
     setState(() => _page = 0);
-    _notify('انحفظ رابط السيرفر والرمز بالجهاز. اختبر الدردشة حتى تتأكد من الاتصال.');
+    _notify(_geminiKey.isNotEmpty
+        ? 'انحفظ مفتاح Gemini بأمان على جهازك. ارجع للمحادثة واسألني!'
+        : 'انحفظت الإعدادات. تحتاج مفتاح Gemini أو سيرفر حقيقي حتى يجاوب التطبيق.');
   }
 
   Future<void> _clearHistory() async {
@@ -883,11 +981,54 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
   }
 
   Widget _settingsPage() => ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('إعدادات الاتصال', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+        const Text('تشغيل الذكاء الاصطناعي', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
         const SizedBox(height: 8),
-        Text('مفاتيح مزوّدي الذكاء تبقى في Cloudflare Worker، مو بداخل APK.',
+        Text('ما تحتاج سيرفر ولا رمز دخول. مفتاح Gemini واحد يكفي لتشغيل الدردشة والصور.',
             style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.5)),
+        const SizedBox(height: 14),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('الخطوة 1: افتح Google AI Studio',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+            const SizedBox(height: 6),
+            const SelectableText('https://aistudio.google.com/apikey',
+                textDirection: TextDirection.ltr),
+            const SizedBox(height: 5),
+            const Text('اختر Create API Key ثم انسخ المفتاح من حسابك. لا تدز المفتاح لأي شخص.'),
+            const SizedBox(height: 15),
+            const Text('الخطوة 2: الصق مفتاح Gemini هنا',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _geminiKeyField,
+              obscureText: _obscureToken,
+              autocorrect: false,
+              enableSuggestions: false,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(hintText: 'Gemini API Key', suffixIcon: IconButton(
+                onPressed: () => setState(() => _obscureToken = !_obscureToken),
+                icon: Icon(_obscureToken ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+              )),
+            ),
+            const SizedBox(height: 11),
+            FilledButton.icon(onPressed: _saveSettings,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('حفظ وتشغيل Gemini')),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(onPressed: _testGemini,
+                icon: const Icon(Icons.network_check),
+                label: const Text('فحص مفتاح Gemini')),
+            const SizedBox(height: 8),
+            Text('المفتاح ينخزن بخزن أندرويد الآمن وينرسل إلى Google فقط مع أسئلتك. '
+              'هذه طريقة مبسطة للاستعمال الشخصي؛ للتوزيع العام يفضّل سيرفر آمن.',
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12, height: 1.4)),
+          ],
+        ))),
         const SizedBox(height: 20),
+        const Text('إعدادات متقدمة: ربط GPT وClaude عبر سيرفرك',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
         Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
