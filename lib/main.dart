@@ -9,6 +9,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -452,6 +453,9 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
     try {
       final useGemini = _geminiKey.isNotEmpty &&
           (provider == 'gemini' || _chatUri() == null || _token.isEmpty);
+      if (useGemini && provider != 'gemini' && session.provider != 'smart') {
+        _notify('الذكاء المحدد يحتاج سيرفر، فراح أستخدم Gemini هسه.');
+      }
       final answer = useGemini
           ? await _askGeminiDirect(session.messages, image, imageMime)
           : await _askBackend(provider, session.messages, image, imageMime);
@@ -992,6 +996,18 @@ class _MurtadhaAiState extends State<MurtadhaAi> {
             const Text('الخطوة 1: افتح Google AI Studio',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
             const SizedBox(height: 6),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('افتح موقع إنشاء مفتاح Gemini'),
+              onPressed: () async {
+                final ok = await launchUrl(
+                  Uri.parse('https://aistudio.google.com/apikey'),
+                  mode: LaunchMode.externalApplication,
+                );
+                if (!ok) _notify('افتح aistudio.google.com/apikey من المتصفح.');
+              },
+            ),
+            const SizedBox(height: 5),
             const SelectableText('https://aistudio.google.com/apikey',
                 textDirection: TextDirection.ltr),
             const SizedBox(height: 5),
