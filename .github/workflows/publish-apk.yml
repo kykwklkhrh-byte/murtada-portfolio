@@ -1,0 +1,36 @@
+name: Publish Murtadha AI APK download
+on:
+  push:
+    branches: [murtadha-ai-app]
+    paths:
+      - .github/workflows/publish-apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve verified APK from successful Android build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release
+          gh run download 41265478032 --repo "$GITHUB_REPOSITORY" --name Murtadha-AI-APK --dir release
+          test -s release/app-release.apk
+          mv release/app-release.apk release/Murtadha-AI-v1.1.apk
+          file release/Murtadha-AI-v1.1.apk
+          sha256sum release/Murtadha-AI-v1.1.apk
+      - name: Publish direct GitHub Release download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create murtadha-ai-v1.1 release/Murtadha-AI-v1.1.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target murtadha-ai-app \
+            --title "Murtadha AI v1.1 — Gemini" \
+            --notes "Murtadha AI Aurora Android app with direct Gemini API key setup. Requires a personal Gemini API key created at Google AI Studio. No keys are bundled." \
+            --latest=false
