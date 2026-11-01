@@ -1,0 +1,38 @@
+name: Build Murtadha AI APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [murtadha-ai-app, main, master]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Test secure AI gateway
+        run: node --test worker/worker.test.mjs
+      - name: Generate Android project files
+        run: flutter create --platforms=android --org com.murtadha --project-name murtadha_ai .
+      - name: Add Android permissions
+        run: python3 scripts/patch_manifest.py
+      - name: Install packages
+        run: flutter pub get
+      - name: Analyze Dart
+        run: flutter analyze --no-fatal-infos
+      - name: Build release APK
+        run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Murtadha-AI-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14

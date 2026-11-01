@@ -1,0 +1,10 @@
+name = "murtadha-ai-private"
+main = "src.js"
+compatibility_date = "2026-10-01"
+
+# Configure secrets in Cloudflare dashboard (Settings > Variables and Secrets):
+# APP_ACCESS_TOKEN  (required, random long string)
+# GEMINI_API_KEY    (for Gemini)
+# OPENAI_API_KEY    (for GPT)
+# ANTHROPIC_API_KEY (for Claude)
+# Optional: GEMINI_MODEL / OPENAI_MODEL / CLAUDE_MODEL
